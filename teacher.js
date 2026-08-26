@@ -1,0 +1,90 @@
+import { db, storage } from "./firebase.js";
+import {
+  collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, updateDoc, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+import {
+  ref, uploadBytes, getDownloadURL, deleteObject
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-storage.js";
+
+const $=id=>document.getElementById(id);
+const state={students:[],rounds:[],parsedQuestions:[]};
+function escapeHtml(s=""){return String(s).replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));}
+function fmtSec(sec=0){sec=Math.max(0,Math.round(Number(sec)||0));return `${Math.floor(sec/60)}분 ${sec%60}초`;}
+function fmtDate(ts){if(!ts)return "-"; const d=ts.toDate?ts.toDate():new Date(ts);return d.toLocaleString("ko-KR",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"});}
+function groupLabel(round,index){return round.groups?.[index]?.label||`${index*4+1}-${Math.min(index*4+4,round.questions.length)}번`;}
+
+function parseQuestions(text){
+  const lines=text.replace(/\r/g,"").split("\n"); const out=[]; let current=null;
+  const re=/^\s*(?:문제\s*)?(?:\[(\d{1,3})\]|(\d{1,3})\s*번|(\d{1,3})\s*[.)])\s*(.*)$/;
+  for(const line of lines){const m=line.match(re);if(m){if(current)out.push(current);const number=Number(m[1]||m[2]||m[3]);current={number,text:(m[4]||"").trim()};}else if(current){current.text += (current.text?"\n":"") + line;}}
+  if(current)out.push(current);
+  return out.map(q=>({...q,text:q.text.trim()})).filter(q=>q.text);
+}
+function buildGroups(questions){return Array.from({length:Math.ceil(questions.length/4)},(_,i)=>({index:i,label:`${questions[i*4]?.number ?? i*4+1}-${questions[Math.min(i*4+3,questions.length-1)]?.number ?? i*4+4}번`,audioUrl:"",audioPath:"",segmentStart:"",segmentEnd:""}));}
+function showPreview(){const qs=state.parsedQuestions;$("parseSummary").textContent=qs.length?`${qs.length}문제 인식 · ${Math.ceil(qs.length/4)}개 묶음`:`문제 번호를 인식하지 못했습니다.`;$("scriptPreview").classList.toggle("hidden",!qs.length);$("scriptPreview").innerHTML=qs.map(q=>`<div class="preview-q"><b>${q.number}번</b><br>${escapeHtml(q.text)}</div>`).join("");}
+
+async function loadStudents(){const snap=await getDocs(collection(db,"students"));state.students=snap.docs.map(d=>({studentNo:d.id,...d.data()})).sort((a,b)=>a.studentNo.localeCompare(b.studentNo,"ko",{numeric:true}));$("studentTableBody").innerHTML=state.students.map(s=>`<tr><td>${escapeHtml(s.studentNo)}</td><td>${escapeHtml(s.name)}</td><td><button class="btn danger small" data-del-student="${escapeHtml(s.studentNo)}">삭제</button></td></tr>`).join("")||`<tr><td colspan="3" class="muted">등록된 학생이 없습니다.</td></tr>`;document.querySelectorAll("[data-del-student]").forEach(b=>b.addEventListener("click",()=>deleteStudent(b.dataset.delStudent)));}
+async function addStudent(no,name){no=no.trim();name=name.trim();if(!no||!name)throw new Error("학번과 이름을 입력하세요.");if(no.includes("/"))throw new Error("학번에는 / 문자를 사용할 수 없습니다.");await setDoc(doc(db,"students",no),{name,updatedAt:serverTimestamp()},{merge:true});}
+async function deleteStudent(no){if(!confirm(`${no} 학생을 삭제할까요?`))return;await deleteDoc(doc(db,"students",no));await loadStudents();}
+function parseStudentRows(text){return text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean).map(line=>{let parts;if(line.includes("\t"))parts=line.split("\t");else if(line.includes(","))parts=line.split(",");else parts=line.split(/\s+/);const no=(parts.shift()||"").trim();const name=parts.join(" ").trim();return {no,name};}).filter(x=>x.no&&x.name);}
+
+async function saveRound(){
+  const title=$("roundTitle").value.trim(); if(!title)return alert("회차 이름을 입력하세요.");
+  if(!state.parsedQuestions.length)state.parsedQuestions=parseQuestions($("scriptInput").value);
+  if(!state.parsedQuestions.length)return alert("대본에서 문제 번호를 인식하지 못했습니다. 1. / 1) / [1] / 1번 형식을 확인해 주세요.");
+  const refDoc=await addDoc(collection(db,"rounds"),{title,questions:state.parsedQuestions,groups:buildGroups(state.parsedQuestions),visible:true,wholeAudioUrl:"",wholeAudioPath:"",createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
+  $("roundTitle").value="";$("scriptInput").value="";state.parsedQuestions=[];showPreview();alert(`회차를 저장했습니다. (${refDoc.id})`);await loadRounds();
+}
+async function loadRounds(){const snap=await getDocs(collection(db,"rounds"));state.rounds=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));renderRounds();}
+function renderRounds(){
+  $("roundList").innerHTML=state.rounds.map(r=>{
+    const groupEditors=(r.groups||buildGroups(r.questions||[])).map((g,i)=>`<div class="group-editor">
+      <b>${escapeHtml(g.label||groupLabel(r,i))}</b>
+      <div class="grid-2" style="margin-top:8px">
+        <div><label class="help">이 묶음 전용 음원</label><input type="file" accept="audio/*" data-group-audio="${r.id}|${i}">${g.audioUrl?`<audio class="audio-mini" controls src="${escapeHtml(g.audioUrl)}"></audio>`:""}</div>
+        <div><label class="help">전체 음원을 쓸 때 구간(초)</label><div class="row"><input class="input" type="number" step="0.1" min="0" placeholder="시작" value="${escapeHtml(g.segmentStart??"")}" data-seg-start="${r.id}|${i}"><input class="input" type="number" step="0.1" min="0" placeholder="끝" value="${escapeHtml(g.segmentEnd??"")}" data-seg-end="${r.id}|${i}"><button class="btn small" data-save-seg="${r.id}|${i}">저장</button></div></div>
+      </div></div>`).join("");
+    return `<div class="round-card"><div class="section-title"><div><h3 style="margin:0">${escapeHtml(r.title)}</h3><div class="help">${r.questions?.length||0}문제 · ${r.groups?.length||0}묶음 · 학생에게 ${r.visible===false?'숨김':'표시 중'}</div></div><div class="row wrap"><button class="btn small" data-toggle-round="${r.id}">${r.visible===false?'표시':'숨김'}</button><button class="btn danger small" data-delete-round="${r.id}">회차 삭제</button></div></div>
+      <div><label class="help">전체 음원 1개 (선택사항)</label><input type="file" accept="audio/*" data-whole-audio="${r.id}">${r.wholeAudioUrl?`<audio class="audio-mini" controls src="${escapeHtml(r.wholeAudioUrl)}"></audio>`:""}</div>${groupEditors}</div>`;
+  }).join("")||`<div class="muted">등록된 회차가 없습니다.</div>`;
+  document.querySelectorAll("[data-whole-audio]").forEach(el=>el.addEventListener("change",e=>uploadWholeAudio(e,el.dataset.wholeAudio)));
+  document.querySelectorAll("[data-group-audio]").forEach(el=>el.addEventListener("change",e=>{const [rid,i]=el.dataset.groupAudio.split("|");uploadGroupAudio(e,rid,Number(i));}));
+  document.querySelectorAll("[data-save-seg]").forEach(b=>b.addEventListener("click",()=>{const [rid,i]=b.dataset.saveSeg.split("|");saveSegment(rid,Number(i));}));
+  document.querySelectorAll("[data-toggle-round]").forEach(b=>b.addEventListener("click",()=>toggleRound(b.dataset.toggleRound)));
+  document.querySelectorAll("[data-delete-round]").forEach(b=>b.addEventListener("click",()=>deleteRound(b.dataset.deleteRound)));
+}
+async function uploadWholeAudio(e,roundId){const file=e.target.files?.[0];if(!file)return;const path=`teacher-audio/${roundId}/whole-${Date.now()}-${safeName(file.name)}`;const sref=ref(storage,path);e.target.disabled=true;try{await uploadBytes(sref,file,{contentType:file.type});const url=await getDownloadURL(sref);await updateDoc(doc(db,"rounds",roundId),{wholeAudioUrl:url,wholeAudioPath:path,updatedAt:serverTimestamp()});await loadRounds();}finally{e.target.disabled=false;}}
+async function uploadGroupAudio(e,roundId,index){const file=e.target.files?.[0];if(!file)return;const round=state.rounds.find(r=>r.id===roundId);const groups=[...(round.groups||buildGroups(round.questions||[]))];const path=`teacher-audio/${roundId}/g${index+1}-${Date.now()}-${safeName(file.name)}`;const sref=ref(storage,path);e.target.disabled=true;try{await uploadBytes(sref,file,{contentType:file.type});const url=await getDownloadURL(sref);groups[index]={...groups[index],audioUrl:url,audioPath:path};await updateDoc(doc(db,"rounds",roundId),{groups,updatedAt:serverTimestamp()});await loadRounds();}finally{e.target.disabled=false;}}
+async function saveSegment(roundId,index){const round=state.rounds.find(r=>r.id===roundId);const groups=[...(round.groups||[])];const start=document.querySelector(`[data-seg-start="${CSS.escape(roundId+'|'+index)}"]`).value;const end=document.querySelector(`[data-seg-end="${CSS.escape(roundId+'|'+index)}"]`).value;if(start!==""&&end!==""&&Number(end)<=Number(start))return alert("끝 초는 시작 초보다 커야 합니다.");groups[index]={...groups[index],segmentStart:start===""?"":Number(start),segmentEnd:end===""?"":Number(end)};await updateDoc(doc(db,"rounds",roundId),{groups,updatedAt:serverTimestamp()});alert("구간을 저장했습니다.");}
+async function toggleRound(roundId){const round=state.rounds.find(r=>r.id===roundId);await updateDoc(doc(db,"rounds",roundId),{visible:round.visible===false,updatedAt:serverTimestamp()});await loadRounds();}
+async function deleteRound(roundId){if(!confirm("회차를 삭제할까요? 학생의 기존 진도 기록은 남습니다."))return;await deleteDoc(doc(db,"rounds",roundId));await loadRounds();}
+function safeName(name){return name.replace(/[^a-zA-Z0-9가-힣._-]/g,"_").slice(-80);}
+
+async function loadProgress(){
+  const [pSnap,sSnap,rSnap]=await Promise.all([getDocs(collection(db,"progress")),getDocs(collection(db,"students")),getDocs(collection(db,"rounds"))]);
+  const students=sSnap.docs.map(d=>({studentNo:d.id,...d.data()}));const rounds=new Map(rSnap.docs.map(d=>[d.id,{id:d.id,...d.data()}]));
+  const plist=pSnap.docs.map(d=>({id:d.id,...d.data()}));
+  const byStudent=new Map();for(const p of plist){const prev=byStudent.get(p.studentNo);if(!prev||(p.updatedAt?.seconds||0)>(prev.updatedAt?.seconds||0))byStudent.set(p.studentNo,p);}
+  $("progressTableBody").innerHTML=students.sort((a,b)=>a.studentNo.localeCompare(b.studentNo,"ko",{numeric:true})).map(s=>{const p=byStudent.get(s.studentNo);if(!p)return `<tr><td>${escapeHtml(s.studentNo)}</td><td>${escapeHtml(s.name)}</td><td class="muted">시작 전</td><td>-</td><td>-</td><td>-</td><td><button class="btn ghost small" data-detail="${escapeHtml(s.studentNo)}">상세</button></td></tr>`;const round=rounds.get(p.roundId);return `<tr><td>${escapeHtml(s.studentNo)}</td><td>${escapeHtml(s.name)}</td><td>${escapeHtml(round?.title||p.roundTitle||"")}<br>${escapeHtml(p.groupLabel||"")} · ${(p.listenCount||0)+(p.recordCount||0)}/6</td><td>${p.listenCount||0}회<br>${fmtSec(p.totalListenSec)}</td><td>${p.recordCount||0}개<br>${fmtSec(p.totalRecordSec)}</td><td>${fmtDate(p.updatedAt)}</td><td><button class="btn primary small" data-detail="${escapeHtml(s.studentNo)}">상세</button></td></tr>`;}).join("");
+  document.querySelectorAll("[data-detail]").forEach(b=>b.addEventListener("click",()=>showStudentDetail(b.dataset.detail)));
+}
+async function showStudentDetail(studentNo){
+  const studentSnap=await getDoc(doc(db,"students",studentNo));const name=studentSnap.exists()?studentSnap.data().name:"";
+  const [pSnap,lSnap]=await Promise.all([getDocs(collection(db,"progress")),getDocs(collection(db,"activityLogs"))]);
+  const ps=pSnap.docs.map(d=>d.data()).filter(p=>p.studentNo===studentNo).sort((a,b)=>(b.updatedAt?.seconds||0)-(a.updatedAt?.seconds||0));
+  const logs=lSnap.docs.map(d=>({id:d.id,...d.data()})).filter(l=>l.studentNo===studentNo).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+  $("detailTitle").textContent=`${studentNo} ${name} 상세`;
+  const summary=ps.length?`<h3>묶음별 진도</h3>${ps.map(p=>`<div class="log-item"><b>${escapeHtml(p.roundTitle||"")} · ${escapeHtml(p.groupLabel||"")}</b><br>음원 ${p.listenCount||0}/3 (${fmtSec(p.totalListenSec)}) · 녹음 ${p.recordCount||0}/3 (${fmtSec(p.totalRecordSec)})<br><span class="help">최근 ${fmtDate(p.updatedAt)}</span></div>`).join("")}:`<div class="muted">진도 기록이 없습니다.</div>`;
+  const history=logs.length?`<h3>활동 기록</h3>${logs.map(l=>`<div class="log-item"><div class="row" style="justify-content:space-between"><b>${l.type==='record'?'🎙 녹음':'▶ 음원 재생'} · ${escapeHtml(l.roundTitle||"")} · ${escapeHtml(l.groupLabel||"")}</b><span class="help">${fmtDate(l.createdAt)}</span></div><div>${l.readNo?`${l.readNo}번째 읽기 · `:""}${fmtSec(l.durationSec)}</div>${l.recordingUrl?`<audio class="audio-mini" controls src="${escapeHtml(l.recordingUrl)}"></audio>`:""}</div>`).join("")}:`<div class="muted">활동 기록이 없습니다.</div>`;
+  $("detailBody").innerHTML=summary+history;$("detailModal").classList.remove("hidden");
+}
+
+// 탭
+for(const b of document.querySelectorAll(".tab-btn")){b.addEventListener("click",()=>{document.querySelectorAll(".tab-btn").forEach(x=>x.classList.toggle("active",x===b));document.querySelectorAll(".tab-panel").forEach(p=>p.classList.add("hidden"));$("tab-"+b.dataset.tab).classList.remove("hidden");if(b.dataset.tab==="progress")loadProgress();if(b.dataset.tab==="rounds")loadRounds();});}
+$("parseScriptBtn").addEventListener("click",()=>{state.parsedQuestions=parseQuestions($("scriptInput").value);showPreview();});
+$("saveRoundBtn").addEventListener("click",saveRound);
+$("singleAddBtn").addEventListener("click",async()=>{try{await addStudent($("singleNo").value,$("singleName").value);$("singleNo").value="";$("singleName").value="";await loadStudents();}catch(e){alert(e.message);}});
+$("bulkAddBtn").addEventListener("click",async()=>{const rows=parseStudentRows($("bulkStudents").value);if(!rows.length)return alert("인식된 학생이 없습니다.");let ok=0;for(const r of rows){try{await addStudent(r.no,r.name);ok++;}catch(e){console.warn(r,e);}}$("bulkResult").textContent=`${ok}명 등록/갱신 완료`;await loadStudents();});
+$("refreshStudents").addEventListener("click",loadStudents);$("refreshRounds").addEventListener("click",loadRounds);$("refreshProgress").addEventListener("click",loadProgress);$("closeModal").addEventListener("click",()=>$("detailModal").classList.add("hidden"));$("detailModal").addEventListener("click",e=>{if(e.target===$("detailModal"))$("detailModal").classList.add("hidden");});
+
+loadStudents();loadRounds();

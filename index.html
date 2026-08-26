@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#2563eb" />
+  <title>영어 듣기 읽기 연습</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="app-shell student-shell">
+    <section id="loginView" class="card login-card">
+      <div class="brand"><span class="brand-badge">EN</span> 영어 듣기 읽기 연습</div>
+      <p class="muted">학번과 이름을 입력하세요.</p>
+      <form id="loginForm">
+        <div class="field"><label for="studentNo">학번</label><input id="studentNo" inputmode="numeric" autocomplete="off" required /></div>
+        <div class="field"><label for="studentName">이름</label><input id="studentName" autocomplete="name" required /></div>
+        <button class="btn primary" style="width:100%" type="submit">들어가기</button>
+      </form>
+      <div id="loginError" class="notice error hidden"></div>
+    </section>
+
+    <section id="studentView" class="hidden">
+      <header class="topbar">
+        <div class="brand"><span class="brand-badge">EN</span><span>영어 듣기 읽기</span></div>
+        <div class="row"><span id="studentBadge" class="status-pill"></span><button id="logoutBtn" class="btn ghost small">나가기</button></div>
+      </header>
+
+      <section id="currentProgressCard" class="card hidden">
+        <div class="section-title"><h2>현재 진행 상황</h2><span id="currentProgressStatus" class="status-pill"></span></div>
+        <div id="currentProgressText"></div>
+      </section>
+
+      <section class="card">
+        <h2>1. 회차 선택하기</h2>
+        <select id="roundSelect" class="input"><option value="">회차를 선택하세요</option></select>
+      </section>
+
+      <section id="groupSection" class="card hidden">
+        <h2>2. 문제 선택하기</h2>
+        <div id="groupButtons" class="group-buttons"></div>
+      </section>
+
+      <section id="practiceSection" class="hidden">
+        <div class="card progress-strip">
+          <div class="section-title"><h2 id="practiceTitle">연습</h2><span id="readModePill" class="status-pill"></span></div>
+          <div id="readStatus" style="font-weight:800"></div>
+          <div class="read-steps" id="readSteps"></div>
+        </div>
+
+        <div class="card script-card">
+          <div id="scriptNumber" class="script-number"></div>
+          <div id="scriptText" class="script-text"></div>
+          <div class="script-nav">
+            <button id="prevQuestion" class="btn ghost">← 이전</button>
+            <div id="scriptDots" class="dots"></div>
+            <button id="nextQuestion" class="btn ghost">다음 →</button>
+          </div>
+        </div>
+
+        <div id="listenInfo" class="card">
+          <h3>음원을 들으며 따라 읽기</h3>
+          <p class="help">1~3번째 읽기는 음원을 재생한 실제 시간을 기록합니다. 음원이 끝까지 재생되면 1회가 완료됩니다.</p>
+          <div id="noAudioNotice" class="notice error hidden">이 문제 묶음에는 교사가 등록한 음원이 없습니다.</div>
+        </div>
+
+        <div id="recordInfo" class="card hidden">
+          <h3>내 목소리 녹음하기</h3>
+          <p class="help">4~6번째 읽기는 녹음으로 제출합니다. 마이크 권한을 허용해 주세요.</p>
+          <div class="record-panel">
+            <button id="recordBtn" class="record-btn">녹음</button>
+            <div id="recordTimer" class="timer">00:00</div>
+            <div id="recordStatus" class="muted">녹음 버튼을 누르면 시작합니다.</div>
+          </div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <div id="floatingAudio" class="floating-controls hidden">
+    <button id="back3" class="seek">−3초</button>
+    <button id="playPause" class="play">재생</button>
+    <button id="forward3" class="seek">+3초</button>
+    <select id="speedSelect" aria-label="재생 속도">
+      <option value="0.6">0.6×</option><option value="0.8">0.8×</option><option value="1" selected>1.0×</option><option value="1.2">1.2×</option>
+    </select>
+  </div>
+
+  <audio id="practiceAudio" preload="metadata"></audio>
+  <script type="module" src="./student.js"></script>
+</body>
+</html>

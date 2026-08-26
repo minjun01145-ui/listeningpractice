@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>영어 듣기 교사용 관리</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-badge">T</span> 교사용 관리</div>
+      <a class="btn ghost small" href="./index.html">학생 화면 열기</a>
+    </header>
+
+    <div class="notice">이 버전은 요청대로 별도 관리자 인증을 넣지 않았습니다. Firebase Hosting 주소를 외부에 공개하지 않는 용도로 사용하세요.</div>
+
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="students">학생 관리</button>
+      <button class="tab-btn" data-tab="rounds">회차·대본·음원</button>
+      <button class="tab-btn" data-tab="progress">진도·녹음 확인</button>
+    </nav>
+
+    <section id="tab-students" class="tab-panel">
+      <div class="grid-2">
+        <div class="card">
+          <h2>엑셀에서 한꺼번에 붙여넣기</h2>
+          <p class="help">엑셀의 학번/이름 두 열을 그대로 복사해 붙여넣으세요. 탭, 쉼표, 공백 형식을 인식합니다.</p>
+          <textarea id="bulkStudents" class="input" placeholder="10101\t김민수\n10102\t이서연"></textarea>
+          <button id="bulkAddBtn" class="btn primary">학생 일괄 등록</button>
+          <div id="bulkResult" class="help"></div>
+        </div>
+        <div class="card">
+          <h2>학생 한 명 등록</h2>
+          <div class="field"><label>학번</label><input id="singleNo" /></div>
+          <div class="field"><label>이름</label><input id="singleName" /></div>
+          <button id="singleAddBtn" class="btn primary">등록</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-title"><h2>등록 학생</h2><button id="refreshStudents" class="btn ghost small">새로고침</button></div>
+        <div class="table-wrap"><table><thead><tr><th>학번</th><th>이름</th><th>관리</th></tr></thead><tbody id="studentTableBody"></tbody></table></div>
+      </div>
+    </section>
+
+    <section id="tab-rounds" class="tab-panel hidden">
+      <div class="card">
+        <h2>새 회차 만들기</h2>
+        <div class="field"><label>회차 이름</label><input id="roundTitle" placeholder="예: 2026 영어듣기 2회" /></div>
+        <div class="field">
+          <label>전체 대본 붙여넣기</label>
+          <textarea id="scriptInput" style="min-height:260px" placeholder="1. ...\n\n2. ...\n\n3. ..."></textarea>
+          <div class="help">줄 시작이 <b>1.</b>, <b>1)</b>, <b>[1]</b>, <b>1번</b> 형식이면 자동 인식합니다.</div>
+        </div>
+        <div class="row wrap"><button id="parseScriptBtn" class="btn">자동 분할 미리보기</button><button id="saveRoundBtn" class="btn primary">회차 저장</button><span id="parseSummary" class="help"></span></div>
+        <div id="scriptPreview" class="preview-list hidden"></div>
+      </div>
+
+      <div class="card">
+        <div class="section-title"><h2>등록된 회차 / 음원</h2><button id="refreshRounds" class="btn ghost small">새로고침</button></div>
+        <p class="help">권장: 1–4, 5–8처럼 묶음별 음원을 직접 올리세요. 또는 전체 음원 하나를 올리고 각 묶음의 시작/끝 초를 입력할 수 있습니다.</p>
+        <div id="roundList"></div>
+      </div>
+    </section>
+
+    <section id="tab-progress" class="tab-panel hidden">
+      <div class="card">
+        <div class="section-title"><h2>학생별 현재 진도</h2><button id="refreshProgress" class="btn primary small">진도 새로고침</button></div>
+        <div class="table-wrap"><table><thead><tr><th>학번</th><th>이름</th><th>최근 위치</th><th>음원 재생</th><th>녹음</th><th>최근 활동</th><th>열람</th></tr></thead><tbody id="progressTableBody"></tbody></table></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="detailModal" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="section-title"><h2 id="detailTitle">학생 상세</h2><button id="closeModal" class="btn ghost">닫기</button></div>
+      <div id="detailBody"></div>
+    </div>
+  </div>
+
+  <script type="module" src="./teacher.js"></script>
+</body>
+</html>

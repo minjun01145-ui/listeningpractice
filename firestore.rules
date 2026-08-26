@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 학교 내부용 간단 MVP: 인증 없이 읽기/쓰기 허용.
+    // 인터넷 공개 운영 전에는 반드시 Authentication 기반 규칙으로 변경하세요.
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
