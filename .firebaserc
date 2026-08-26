@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "test2222-e2458"
+  },
+  "targets": {
+    "test2222-e2458": {
+      "hosting": {
+        "listeningpractice": [
+          "listeningpractice-test2222"
+        ]
+      }
+    }
+  }
+}

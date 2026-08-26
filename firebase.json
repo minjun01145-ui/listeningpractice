@@ -1,8 +1,11 @@
 {
-  "hosting": {
-    "public": ".",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**", "README.md", "lifecycle.json", "firestore.rules", "storage.rules"]
-  },
+  "hosting": [
+    {
+      "target": "listeningpractice",
+      "public": ".",
+      "ignore": ["firebase.json", ".firebaserc", "**/.*", "**/node_modules/**", "README.md", "lifecycle.json", "firestore.rules", "storage.rules"]
+    }
+  ],
   "firestore": { "rules": "firestore.rules" },
   "storage": { "rules": "storage.rules" }
 }
