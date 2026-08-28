@@ -15,13 +15,21 @@ function groupLabel(round,index){return round.groups?.[index]?.label||`${index*4
 
 function parseQuestions(text){
   const lines=text.replace(/\r/g,"").split("\n"); const out=[]; let current=null;
-  const re=/^\s*(?:문제\s*)?(?:\[(\d{1,3})\]|(\d{1,3})\s*번|(\d{1,3})\s*[.)])\s*(.*)$/;
-  for(const line of lines){const m=line.match(re);if(m){if(current)out.push(current);const number=Number(m[1]||m[2]||m[3]);current={number,text:(m[4]||"").trim()};}else if(current){current.text += (current.text?"\n":"") + line;}}
-  if(current)out.push(current);
-  return out.map(q=>({...q,text:q.text.trim()})).filter(q=>q.text);
+  const numberRe=/^\s*(?:문제\s*)?(?:\[(\d{1,3})\]|(\d{1,3})\s*번|(\d{1,3})\s*[.)])\s*$/;
+  const finish=()=>{if(current?.rows.length)out.push({...current,text:current.rows.map(r=>`${r.english}\t${r.korean}`).join("\n")});};
+  for(const line of lines){
+    const m=line.match(numberRe);
+    if(m){finish();current={number:Number(m[1]||m[2]||m[3]),rows:[]};continue;}
+    if(!current||!line.trim())continue;
+    const tab=line.indexOf("\t");
+    if(tab<0)continue;
+    const english=line.slice(0,tab).trim();const korean=line.slice(tab+1).trim();
+    if(english&&korean)current.rows.push({english,korean});
+  }
+  finish();return out;
 }
 function buildGroups(questions){return Array.from({length:Math.ceil(questions.length/4)},(_,i)=>({index:i,label:`${questions[i*4]?.number ?? i*4+1}-${questions[Math.min(i*4+3,questions.length-1)]?.number ?? i*4+4}번`,audioUrl:"",audioPath:"",segmentStart:"",segmentEnd:""}));}
-function showPreview(){const qs=state.parsedQuestions;$("parseSummary").textContent=qs.length?`${qs.length}문제 인식 · ${Math.ceil(qs.length/4)}개 묶음`:`문제 번호를 인식하지 못했습니다.`;$("scriptPreview").classList.toggle("hidden",!qs.length);$("scriptPreview").innerHTML=qs.map(q=>`<div class="preview-q"><b>${q.number}번</b><br>${escapeHtml(q.text)}</div>`).join("");}
+function showPreview(){const qs=state.parsedQuestions;const rowCount=qs.reduce((sum,q)=>sum+q.rows.length,0);$("parseSummary").textContent=qs.length?`${qs.length}문제 · 영어/한글 ${rowCount}줄 인식 · ${Math.ceil(qs.length/4)}개 묶음`:`번호와 탭으로 구분된 영어/한글 문장을 인식하지 못했습니다.`;$("scriptPreview").classList.toggle("hidden",!qs.length);$("scriptPreview").innerHTML=qs.map(q=>`<div class="preview-q"><b>${q.number}번</b><div class="bilingual-preview">${q.rows.map(r=>`<div>${escapeHtml(r.english)}</div><div>${escapeHtml(r.korean)}</div>`).join("")}</div></div>`).join("");}
 
 async function loadStudents(){const snap=await getDocs(collection(db,"students"));state.students=snap.docs.map(d=>({studentNo:d.id,...d.data()})).sort((a,b)=>a.studentNo.localeCompare(b.studentNo,"ko",{numeric:true}));$("studentTableBody").innerHTML=state.students.map(s=>`<tr><td>${escapeHtml(s.studentNo)}</td><td>${escapeHtml(s.name)}</td><td><button class="btn danger small" data-del-student="${escapeHtml(s.studentNo)}">삭제</button></td></tr>`).join("")||`<tr><td colspan="3" class="muted">등록된 학생이 없습니다.</td></tr>`;document.querySelectorAll("[data-del-student]").forEach(b=>b.addEventListener("click",()=>deleteStudent(b.dataset.delStudent)));}
 async function addStudent(no,name){no=no.trim();name=name.trim();if(!no||!name)throw new Error("학번과 이름을 입력하세요.");if(no.includes("/"))throw new Error("학번에는 / 문자를 사용할 수 없습니다.");await setDoc(doc(db,"students",no),{name,updatedAt:serverTimestamp()},{merge:true});}
@@ -30,8 +38,8 @@ function parseStudentRows(text){return text.split(/\r?\n/).map(l=>l.trim()).filt
 
 async function saveRound(){
   const title=$("roundTitle").value.trim(); if(!title)return alert("회차 이름을 입력하세요.");
-  if(!state.parsedQuestions.length)state.parsedQuestions=parseQuestions($("scriptInput").value);
-  if(!state.parsedQuestions.length)return alert("대본에서 문제 번호를 인식하지 못했습니다. 1. / 1) / [1] / 1번 형식을 확인해 주세요.");
+  state.parsedQuestions=parseQuestions($("scriptInput").value);
+  if(!state.parsedQuestions.length)return alert("번호 줄과 탭으로 구분된 영어/한글 문장을 인식하지 못했습니다. 예시 형식을 확인해 주세요.");
   const refDoc=await addDoc(collection(db,"rounds"),{title,questions:state.parsedQuestions,groups:buildGroups(state.parsedQuestions),visible:true,wholeAudioUrl:"",wholeAudioPath:"",createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
   $("roundTitle").value="";$("scriptInput").value="";state.parsedQuestions=[];showPreview();alert(`회차를 저장했습니다. (${refDoc.id})`);await loadRounds();
 }
@@ -82,6 +90,7 @@ async function showStudentDetail(studentNo){
 // 탭
 for(const b of document.querySelectorAll(".tab-btn")){b.addEventListener("click",()=>{document.querySelectorAll(".tab-btn").forEach(x=>x.classList.toggle("active",x===b));document.querySelectorAll(".tab-panel").forEach(p=>p.classList.add("hidden"));$("tab-"+b.dataset.tab).classList.remove("hidden");if(b.dataset.tab==="progress")loadProgress();if(b.dataset.tab==="rounds")loadRounds();});}
 $("parseScriptBtn").addEventListener("click",()=>{state.parsedQuestions=parseQuestions($("scriptInput").value);showPreview();});
+$("scriptInput").addEventListener("input",()=>{state.parsedQuestions=[];$("parseSummary").textContent="";$("scriptPreview").classList.add("hidden");});
 $("saveRoundBtn").addEventListener("click",saveRound);
 $("singleAddBtn").addEventListener("click",async()=>{try{await addStudent($("singleNo").value,$("singleName").value);$("singleNo").value="";$("singleName").value="";await loadStudents();}catch(e){alert(e.message);}});
 $("bulkAddBtn").addEventListener("click",async()=>{const rows=parseStudentRows($("bulkStudents").value);if(!rows.length)return alert("인식된 학생이 없습니다.");let ok=0;for(const r of rows){try{await addStudent(r.no,r.name);ok++;}catch(e){console.warn(r,e);}}$("bulkResult").textContent=`${ok}명 등록/갱신 완료`;await loadStudents();});

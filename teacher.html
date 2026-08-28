@@ -48,9 +48,9 @@
         <h2>새 회차 만들기</h2>
         <div class="field"><label>회차 이름</label><input id="roundTitle" placeholder="예: 2026 영어듣기 2회" /></div>
         <div class="field">
-          <label>전체 대본 붙여넣기</label>
-          <textarea id="scriptInput" style="min-height:260px" placeholder="1. ...\n\n2. ...\n\n3. ..."></textarea>
-          <div class="help">줄 시작이 <b>1.</b>, <b>1)</b>, <b>[1]</b>, <b>1번</b> 형식이면 자동 인식합니다.</div>
+          <label>영어·한글 대본 붙여넣기</label>
+          <textarea id="scriptInput" style="min-height:260px" placeholder="1번\nHello.\t안녕하세요.\nHow are you?\t어떻게 지내세요?\n\n2번\nThank you.\t고맙습니다."></textarea>
+          <div class="help">번호는 <b>1번</b>처럼 한 줄에 입력하고, 각 문장은 <b>영어 → Tab 키 → 한글</b> 순서로 입력하세요. 1. / 1) / [1] 번호 형식도 인식합니다.</div>
         </div>
         <div class="row wrap"><button id="parseScriptBtn" class="btn">자동 분할 미리보기</button><button id="saveRoundBtn" class="btn primary">회차 저장</button><span id="parseSummary" class="help"></span></div>
         <div id="scriptPreview" class="preview-list hidden"></div>
@@ -78,6 +78,6 @@
     </div>
   </div>
 
-  <script type="module" src="./teacher.js?v=20260826-2"></script>
+  <script type="module" src="./teacher.js?v=20260828-1"></script>
 </body>
 </html>

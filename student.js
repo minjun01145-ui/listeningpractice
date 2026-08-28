@@ -10,7 +10,8 @@ const $ = (id) => document.getElementById(id);
 const state = {
   student: null, rounds: [], round: null, groupIndex: null, groupQuestions: [], questionPos: 0,
   progress: null, mediaRecorder: null, mediaStream: null, chunks: [], recordStartedAt: 0,
-  recordTimerId: null, listenStartedAt: 0, activePlayedSec: 0, lastPlayTick: 0, segmentEnded: false
+  recordTimerId: null, listenStartedAt: 0, activePlayedSec: 0, lastPlayTick: 0, segmentEnded: false,
+  hideEnglish: false, hideKorean: false
 };
 const audio = $("practiceAudio");
 
@@ -103,7 +104,10 @@ async function openGroup(index) {
 function renderScript() {
   const q=state.groupQuestions[state.questionPos]; if(!q)return;
   $("scriptNumber").textContent = `${q.number}번`;
-  $("scriptText").textContent = q.text;
+  const rows=Array.isArray(q.rows)&&q.rows.length?q.rows:q.text?.split("\n").filter(Boolean).map(line=>({english:line,korean:""}))||[];
+  $("scriptText").innerHTML=`<div class="bilingual-table" role="table" aria-label="영어와 한글 대본"><div class="bilingual-head english-col" role="columnheader">영어</div><div class="bilingual-head korean-col" role="columnheader">한글</div>${rows.map(r=>`<div class="bilingual-cell english-col ${state.hideEnglish?'masked':''}" role="cell"><span>${escapeHtml(r.english)}</span></div><div class="bilingual-cell korean-col ${state.hideKorean?'masked':''}" role="cell"><span>${escapeHtml(r.korean)}</span></div>`).join("")}</div>`;
+  $("toggleEnglish").textContent=state.hideEnglish?"영어 보이기":"영어 가리기";$("toggleEnglish").setAttribute("aria-pressed",String(state.hideEnglish));
+  $("toggleKorean").textContent=state.hideKorean?"한글 보이기":"한글 가리기";$("toggleKorean").setAttribute("aria-pressed",String(state.hideKorean));
   $("prevQuestion").disabled=state.questionPos===0; $("nextQuestion").disabled=state.questionPos===state.groupQuestions.length-1;
   $("scriptDots").innerHTML=state.groupQuestions.map((_,i)=>`<span class="dot ${i===state.questionPos?'active':''}"></span>`).join("");
 }
@@ -237,6 +241,8 @@ $("logoutBtn").addEventListener("click",async()=>{await stopAllMedia();sessionSt
 $("roundSelect").addEventListener("change",e=>selectRound(e.target.value));
 $("prevQuestion").addEventListener("click",()=>{if(state.questionPos>0){state.questionPos--;renderScript();}});
 $("nextQuestion").addEventListener("click",()=>{if(state.questionPos<state.groupQuestions.length-1){state.questionPos++;renderScript();}});
+$("toggleEnglish").addEventListener("click",()=>{state.hideEnglish=!state.hideEnglish;renderScript();});
+$("toggleKorean").addEventListener("click",()=>{state.hideKorean=!state.hideKorean;renderScript();});
 $("playPause").addEventListener("click",toggleAudio);
 $("back3").addEventListener("click",()=>{const {start}=getSegmentBounds();audio.currentTime=Math.max(start,audio.currentTime-3);});
 $("forward3").addEventListener("click",()=>{const {end}=getSegmentBounds();audio.currentTime=end?Math.min(end-.05,audio.currentTime+3):Math.min(audio.duration||Infinity,audio.currentTime+3);});

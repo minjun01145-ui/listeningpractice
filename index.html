@@ -49,7 +49,13 @@
         </div>
 
         <div class="card script-card">
-          <div id="scriptNumber" class="script-number"></div>
+          <div class="script-heading">
+            <div id="scriptNumber" class="script-number"></div>
+            <div class="row wrap script-visibility-controls">
+              <button id="toggleEnglish" class="btn ghost small" type="button" aria-pressed="false">영어 가리기</button>
+              <button id="toggleKorean" class="btn ghost small" type="button" aria-pressed="false">한글 가리기</button>
+            </div>
+          </div>
           <div id="scriptText" class="script-text"></div>
           <div class="script-nav">
             <button id="prevQuestion" class="btn ghost">← 이전</button>
@@ -87,6 +93,6 @@
   </div>
 
   <audio id="practiceAudio" preload="metadata"></audio>
-  <script type="module" src="./student.js"></script>
+  <script type="module" src="./student.js?v=20260828-1"></script>
 </body>
 </html>
