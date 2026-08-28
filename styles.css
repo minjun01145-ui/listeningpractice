@@ -130,6 +130,8 @@ th, td { padding:11px 12px; border-bottom:1px solid var(--line); text-align:left
 th { background:#f8fafc; position:sticky; top:0; z-index:2; }
 tr:last-child td { border-bottom:0; }
 .round-card { border:1px solid var(--line); border-radius:14px; padding:14px; margin:10px 0; }
+.timing-editor { border:1px solid var(--line); border-radius:12px; padding:12px; margin-top:12px; background:#f8fafc; }
+.timing-editor textarea { min-height:130px; margin:8px 0; font-variant-numeric:tabular-nums; }
 .group-editor { border-top:1px dashed var(--line); padding-top:12px; margin-top:12px; }
 .audio-mini { width:100%; margin-top:8px; }
 .preview-list { max-height:350px; overflow:auto; border:1px solid var(--line); border-radius:12px; padding:8px 12px; background:#f8fafc; }

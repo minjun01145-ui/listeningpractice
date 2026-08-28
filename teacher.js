@@ -29,6 +29,18 @@ function parseQuestions(text){
   finish();return out;
 }
 function buildGroups(questions){return Array.from({length:Math.ceil(questions.length/4)},(_,i)=>({index:i,label:`${questions[i*4]?.number ?? i*4+1}-${questions[Math.min(i*4+3,questions.length-1)]?.number ?? i*4+4}번`,audioUrl:"",audioPath:"",segmentStart:"",segmentEnd:""}));}
+function parseQuestionTimings(text){
+  const normalized=text.replace(/<br\s*\/?\s*>/gi,"\n").replace(/\*\*/g,"");
+  const re=/(\d{1,3})\s*번\s*(?:\||:|-)?\s*(\d{1,3}):([0-5]\d)(?::([0-5]\d))?/g;
+  const byNumber=new Map();let match;
+  while((match=re.exec(normalized))){
+    const number=Number(match[1]);const a=Number(match[2]);const b=Number(match[3]);const c=match[4]===undefined?null:Number(match[4]);
+    byNumber.set(number,{number,start:c===null?a*60+b:a*3600+b*60+c});
+  }
+  return [...byNumber.values()].sort((a,b)=>a.number-b.number);
+}
+function formatTimestamp(sec){sec=Math.max(0,Math.floor(Number(sec)||0));const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;return h?`${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`:`${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;}
+function timingsToText(timings=[]){return timings.map(t=>`${t.number}번\t${formatTimestamp(t.start)}`).join("\n");}
 function showPreview(){const qs=state.parsedQuestions;const rowCount=qs.reduce((sum,q)=>sum+q.rows.length,0);$("parseSummary").textContent=qs.length?`${qs.length}문제 · 영어/한글 ${rowCount}줄 인식 · ${Math.ceil(qs.length/4)}개 묶음`:`번호와 탭으로 구분된 영어/한글 문장을 인식하지 못했습니다.`;$("scriptPreview").classList.toggle("hidden",!qs.length);$("scriptPreview").innerHTML=qs.map(q=>`<div class="preview-q"><b>${q.number}번</b><div class="bilingual-preview">${q.rows.map(r=>`<div>${escapeHtml(r.english)}</div><div>${escapeHtml(r.korean)}</div>`).join("")}</div></div>`).join("");}
 
 async function loadStudents(){const snap=await getDocs(collection(db,"students"));state.students=snap.docs.map(d=>({studentNo:d.id,...d.data()})).sort((a,b)=>a.studentNo.localeCompare(b.studentNo,"ko",{numeric:true}));$("studentTableBody").innerHTML=state.students.map(s=>`<tr><td>${escapeHtml(s.studentNo)}</td><td>${escapeHtml(s.name)}</td><td><button class="btn danger small" data-del-student="${escapeHtml(s.studentNo)}">삭제</button></td></tr>`).join("")||`<tr><td colspan="3" class="muted">등록된 학생이 없습니다.</td></tr>`;document.querySelectorAll("[data-del-student]").forEach(b=>b.addEventListener("click",()=>deleteStudent(b.dataset.delStudent)));}
@@ -40,8 +52,15 @@ async function saveRound(){
   const title=$("roundTitle").value.trim(); if(!title)return alert("회차 이름을 입력하세요.");
   state.parsedQuestions=parseQuestions($("scriptInput").value);
   if(!state.parsedQuestions.length)return alert("번호 줄과 탭으로 구분된 영어/한글 문장을 인식하지 못했습니다. 예시 형식을 확인해 주세요.");
-  const refDoc=await addDoc(collection(db,"rounds"),{title,questions:state.parsedQuestions,groups:buildGroups(state.parsedQuestions),visible:true,wholeAudioUrl:"",wholeAudioPath:"",createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
-  $("roundTitle").value="";$("scriptInput").value="";state.parsedQuestions=[];showPreview();alert(`회차를 저장했습니다. (${refDoc.id})`);await loadRounds();
+  const button=$("saveRoundBtn");button.disabled=true;button.textContent="저장 중…";
+  try{
+    const refDoc=await addDoc(collection(db,"rounds"),{title,questions:state.parsedQuestions,groups:buildGroups(state.parsedQuestions),visible:true,wholeAudioUrl:"",wholeAudioPath:"",createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
+    $("roundTitle").value="";$("scriptInput").value="";state.parsedQuestions=[];showPreview();alert(`회차를 저장했습니다. (${refDoc.id})`);await loadRounds();
+  }catch(error){
+    console.error("회차 저장 실패",error);
+    const permissionDenied=error?.code==="permission-denied";
+    alert(permissionDenied?"회차 저장 권한이 없습니다. Firestore 보안 규칙이 배포되었는지 확인해 주세요.":`회차 저장에 실패했습니다.\n${error?.message||error}`);
+  }finally{button.disabled=false;button.textContent="회차 저장";}
 }
 async function loadRounds(){const snap=await getDocs(collection(db,"rounds"));state.rounds=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));renderRounds();}
 function renderRounds(){
@@ -52,17 +71,29 @@ function renderRounds(){
         <div><label class="help">이 묶음 전용 음원</label><input type="file" accept="audio/*" data-group-audio="${r.id}|${i}">${g.audioUrl?`<audio class="audio-mini" controls src="${escapeHtml(g.audioUrl)}"></audio>`:""}</div>
         <div><label class="help">전체 음원을 쓸 때 구간(초)</label><div class="row"><input class="input" type="number" step="0.1" min="0" placeholder="시작" value="${escapeHtml(g.segmentStart??"")}" data-seg-start="${r.id}|${i}"><input class="input" type="number" step="0.1" min="0" placeholder="끝" value="${escapeHtml(g.segmentEnd??"")}" data-seg-end="${r.id}|${i}"><button class="btn small" data-save-seg="${r.id}|${i}">저장</button></div></div>
       </div></div>`).join("");
-    return `<div class="round-card"><div class="section-title"><div><h3 style="margin:0">${escapeHtml(r.title)}</h3><div class="help">${r.questions?.length||0}문제 · ${r.groups?.length||0}묶음 · 학생에게 ${r.visible===false?'숨김':'표시 중'}</div></div><div class="row wrap"><button class="btn small" data-toggle-round="${r.id}">${r.visible===false?'표시':'숨김'}</button><button class="btn danger small" data-delete-round="${r.id}">회차 삭제</button></div></div>
-      <div><label class="help">전체 음원 1개 (선택사항)</label><input type="file" accept="audio/*" data-whole-audio="${r.id}">${r.wholeAudioUrl?`<audio class="audio-mini" controls src="${escapeHtml(r.wholeAudioUrl)}"></audio>`:""}</div>${groupEditors}</div>`;
+    const timingText=timingsToText(r.questionTimings||[]);
+    return `<div class="round-card"><div class="section-title"><div><h3 style="margin:0">${escapeHtml(r.title)}</h3><div class="help">${r.questions?.length||0}문제 · ${r.groups?.length||0}묶음 · 문항 시간 ${r.questionTimings?.length||0}개 · 학생에게 ${r.visible===false?'숨김':'표시 중'}</div></div><div class="row wrap"><button class="btn small" data-toggle-round="${r.id}">${r.visible===false?'표시':'숨김'}</button><button class="btn danger small" data-delete-round="${r.id}">회차 삭제</button></div></div>
+      <div><label class="help">전체 음원 1개 (선택사항)</label><input type="file" accept="audio/*" data-whole-audio="${r.id}">${r.wholeAudioUrl?`<audio class="audio-mini" controls src="${escapeHtml(r.wholeAudioUrl)}"></audio>`:""}</div>
+      <div class="timing-editor"><label><b>문항별 시작 시간 일괄 입력</b></label><p class="help">표 전체를 그대로 붙여넣거나, 각 줄에 <b>1번 01:41</b> 형식으로 입력하세요. 각 문항은 다음 문항 시작 전까지 재생됩니다.</p><textarea class="input" data-question-timings="${r.id}" placeholder="1번 01:41\n2번 02:28">${escapeHtml(timingText)}</textarea><div class="row wrap"><button class="btn primary small" data-save-question-timings="${r.id}">문항 시간 저장</button><span class="help" data-timing-summary="${r.id}">${timingText?`${r.questionTimings.length}개 저장됨`:"저장된 문항 시간이 없습니다."}</span></div></div>${groupEditors}</div>`;
   }).join("")||`<div class="muted">등록된 회차가 없습니다.</div>`;
   document.querySelectorAll("[data-whole-audio]").forEach(el=>el.addEventListener("change",e=>uploadWholeAudio(e,el.dataset.wholeAudio)));
   document.querySelectorAll("[data-group-audio]").forEach(el=>el.addEventListener("change",e=>{const [rid,i]=el.dataset.groupAudio.split("|");uploadGroupAudio(e,rid,Number(i));}));
+  document.querySelectorAll("[data-question-timings]").forEach(el=>el.addEventListener("input",()=>{const count=parseQuestionTimings(el.value).length;document.querySelector(`[data-timing-summary="${CSS.escape(el.dataset.questionTimings)}"]`).textContent=count?`${count}개 문항 시간 인식`:"인식된 문항 시간이 없습니다.";}));
+  document.querySelectorAll("[data-save-question-timings]").forEach(b=>b.addEventListener("click",()=>saveQuestionTimings(b.dataset.saveQuestionTimings)));
   document.querySelectorAll("[data-save-seg]").forEach(b=>b.addEventListener("click",()=>{const [rid,i]=b.dataset.saveSeg.split("|");saveSegment(rid,Number(i));}));
   document.querySelectorAll("[data-toggle-round]").forEach(b=>b.addEventListener("click",()=>toggleRound(b.dataset.toggleRound)));
   document.querySelectorAll("[data-delete-round]").forEach(b=>b.addEventListener("click",()=>deleteRound(b.dataset.deleteRound)));
 }
 async function uploadWholeAudio(e,roundId){const file=e.target.files?.[0];if(!file)return;const path=`teacher-audio/${roundId}/whole-${Date.now()}-${safeName(file.name)}`;const sref=ref(storage,path);e.target.disabled=true;try{await uploadBytes(sref,file,{contentType:file.type});const url=await getDownloadURL(sref);await updateDoc(doc(db,"rounds",roundId),{wholeAudioUrl:url,wholeAudioPath:path,updatedAt:serverTimestamp()});await loadRounds();}finally{e.target.disabled=false;}}
 async function uploadGroupAudio(e,roundId,index){const file=e.target.files?.[0];if(!file)return;const round=state.rounds.find(r=>r.id===roundId);const groups=[...(round.groups||buildGroups(round.questions||[]))];const path=`teacher-audio/${roundId}/g${index+1}-${Date.now()}-${safeName(file.name)}`;const sref=ref(storage,path);e.target.disabled=true;try{await uploadBytes(sref,file,{contentType:file.type});const url=await getDownloadURL(sref);groups[index]={...groups[index],audioUrl:url,audioPath:path};await updateDoc(doc(db,"rounds",roundId),{groups,updatedAt:serverTimestamp()});await loadRounds();}finally{e.target.disabled=false;}}
+async function saveQuestionTimings(roundId){
+  const input=document.querySelector(`[data-question-timings="${CSS.escape(roundId)}"]`);const timings=parseQuestionTimings(input.value);
+  if(!timings.length)return alert("문항 번호와 시간을 인식하지 못했습니다. 예: 1번 01:41");
+  if(timings.some((t,i)=>i>0&&t.start<=timings[i-1].start))return alert("문항 시간은 번호 순서대로 뒤의 문항이 더 늦어야 합니다.");
+  const round=state.rounds.find(r=>r.id===roundId);const questionNumbers=new Set((round?.questions||[]).map(q=>Number(q.number)));const matched=timings.filter(t=>questionNumbers.has(t.number));
+  if(!matched.length)return alert("이 회차의 문항 번호와 일치하는 시간이 없습니다.");
+  await updateDoc(doc(db,"rounds",roundId),{questionTimings:matched,updatedAt:serverTimestamp()});alert(`${matched.length}개 문항 시간을 저장했습니다.`);await loadRounds();
+}
 async function saveSegment(roundId,index){const round=state.rounds.find(r=>r.id===roundId);const groups=[...(round.groups||[])];const start=document.querySelector(`[data-seg-start="${CSS.escape(roundId+'|'+index)}"]`).value;const end=document.querySelector(`[data-seg-end="${CSS.escape(roundId+'|'+index)}"]`).value;if(start!==""&&end!==""&&Number(end)<=Number(start))return alert("끝 초는 시작 초보다 커야 합니다.");groups[index]={...groups[index],segmentStart:start===""?"":Number(start),segmentEnd:end===""?"":Number(end)};await updateDoc(doc(db,"rounds",roundId),{groups,updatedAt:serverTimestamp()});alert("구간을 저장했습니다.");}
 async function toggleRound(roundId){const round=state.rounds.find(r=>r.id===roundId);await updateDoc(doc(db,"rounds",roundId),{visible:round.visible===false,updatedAt:serverTimestamp()});await loadRounds();}
 async function deleteRound(roundId){if(!confirm("회차를 삭제할까요? 학생의 기존 진도 기록은 남습니다."))return;await deleteDoc(doc(db,"rounds",roundId));await loadRounds();}

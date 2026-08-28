@@ -11,7 +11,7 @@ const state = {
   student: null, rounds: [], round: null, groupIndex: null, groupQuestions: [], questionPos: 0,
   progress: null, mediaRecorder: null, mediaStream: null, chunks: [], recordStartedAt: 0,
   recordTimerId: null, listenStartedAt: 0, activePlayedSec: 0, lastPlayTick: 0, segmentEnded: false,
-  hideEnglish: false, hideKorean: false
+  hideEnglish: false, hideKorean: false, questionListenSet: new Set(), questionPassPlayedSec: 0
 };
 const audio = $("practiceAudio");
 
@@ -92,7 +92,7 @@ async function selectRound(roundId) {
 
 async function openGroup(index) {
   await stopAllMedia();
-  state.groupIndex=index; state.questionPos=0; state.groupQuestions = state.round.questions.slice(index*4,index*4+4);
+  state.groupIndex=index; state.questionPos=0; state.groupQuestions = state.round.questions.slice(index*4,index*4+4);state.questionListenSet.clear();state.questionPassPlayedSec=0;
   const pid=progressId(state.student.studentNo,state.round.id,index); const snap=await getDoc(doc(db,"progress",pid));
   state.progress = snap.exists() ? snap.data() : { studentNo:state.student.studentNo, name:state.student.name, roundId:state.round.id, roundTitle:state.round.title, groupIndex:index, groupLabel:groupLabel(state.round,index), listenCount:0, recordCount:0, totalListenSec:0, totalRecordSec:0 };
   $("practiceSection").classList.remove("hidden");
@@ -139,15 +139,30 @@ function configureAudio() {
   const url=g.audioUrl || state.round.wholeAudioUrl;
   if(!url) { $("noAudioNotice").classList.remove("hidden"); $("floatingAudio").classList.add("hidden"); return; }
   $("noAudioNotice").classList.add("hidden"); audio.src=url; audio.playbackRate=Number($("speedSelect").value||1);
-  audio.onloadedmetadata=()=>{
-    if(!g.audioUrl && Number.isFinite(Number(g.segmentStart)) && Number(g.segmentStart)>0) audio.currentTime=Number(g.segmentStart);
-  };
+  audio.onloadedmetadata=()=>{const {start}=getSegmentBounds();if(start>0)audio.currentTime=start;};
   if(mode()==="listen") $("floatingAudio").classList.remove("hidden");
 }
 
 function getSegmentBounds() {
   const g=state.round?.groups?.[state.groupIndex] || {};
+  if(isQuestionTimingMode()){
+    const q=state.groupQuestions[state.questionPos];const timings=[...(state.round.questionTimings||[])].sort((a,b)=>Number(a.number)-Number(b.number));
+    const index=timings.findIndex(t=>Number(t.number)===Number(q?.number));const current=timings[index];const next=timings[index+1];
+    return {start:Number(current?.start)||0,end:next?Number(next.start):null};
+  }
   return { start: g.audioUrl ? 0 : (Number(g.segmentStart)||0), end: g.audioUrl ? null : (Number(g.segmentEnd)||null) };
+}
+
+function isQuestionTimingMode(){
+  const g=state.round?.groups?.[state.groupIndex]||{};if(g.audioUrl||!state.round?.wholeAudioUrl||!state.groupQuestions.length)return false;
+  const numbers=new Set((state.round.questionTimings||[]).map(t=>Number(t.number)));
+  return state.groupQuestions.every(q=>numbers.has(Number(q.number)));
+}
+
+function changeQuestion(nextPos){
+  if(nextPos<0||nextPos>=state.groupQuestions.length)return;
+  updatePlayedTime();audio.pause();$("playPause").textContent="재생";state.lastPlayTick=0;state.activePlayedSec=0;
+  state.questionPos=nextPos;renderScript();configureAudio();
 }
 
 async function toggleAudio() {
@@ -167,8 +182,15 @@ function updatePlayedTime() {
 async function completeListen() {
   if(mode()!=="listen") return;
   updatePlayedTime(); audio.pause(); $("playPause").textContent="재생";
-  const duration=state.activePlayedSec; state.activePlayedSec=0; state.lastPlayTick=0; state.segmentEnded=true;
+  let duration=state.activePlayedSec; state.activePlayedSec=0; state.lastPlayTick=0; state.segmentEnded=true;
   if(duration<3) return;
+  if(isQuestionTimingMode()){
+    state.questionListenSet.add(state.questionPos);state.questionPassPlayedSec+=duration;
+    if(state.questionListenSet.size<state.groupQuestions.length){
+      const next=state.groupQuestions.findIndex((_,i)=>!state.questionListenSet.has(i));changeQuestion(next);return;
+    }
+    duration=state.questionPassPlayedSec;state.questionListenSet.clear();state.questionPassPlayedSec=0;
+  }
   const readNo=currentReadNo(); const pid=progressId(state.student.studentNo,state.round.id,state.groupIndex);
   await setDoc(doc(db,"progress",pid), {
     studentNo:state.student.studentNo,name:state.student.name,roundId:state.round.id,roundTitle:state.round.title,
@@ -180,7 +202,7 @@ async function completeListen() {
   });
   state.progress.listenCount=(state.progress.listenCount||0)+1; state.progress.totalListenSec=(state.progress.totalListenSec||0)+Math.round(duration);
   renderProgress(); await loadLatestProgress();
-  if(mode()==="listen") { const {start}=getSegmentBounds(); audio.currentTime=start; state.segmentEnded=false; }
+  if(mode()==="listen") { if(isQuestionTimingMode()){state.questionPos=0;renderScript();configureAudio();}else{const {start}=getSegmentBounds();audio.currentTime=start;state.segmentEnded=false;} }
 }
 
 async function startRecording() {
@@ -239,8 +261,8 @@ function escapeHtml(s="") { return String(s).replace(/[&<>'"]/g,c=>({"&":"&amp;"
 $("loginForm").addEventListener("submit",async e=>{e.preventDefault(); $("loginError").classList.add("hidden"); try{await login($("studentNo").value.trim(),$("studentName").value.trim());}catch(err){$("loginError").textContent=err.message;$("loginError").classList.remove("hidden");}});
 $("logoutBtn").addEventListener("click",async()=>{await stopAllMedia();sessionStorage.removeItem("elisteningStudent");location.reload();});
 $("roundSelect").addEventListener("change",e=>selectRound(e.target.value));
-$("prevQuestion").addEventListener("click",()=>{if(state.questionPos>0){state.questionPos--;renderScript();}});
-$("nextQuestion").addEventListener("click",()=>{if(state.questionPos<state.groupQuestions.length-1){state.questionPos++;renderScript();}});
+$("prevQuestion").addEventListener("click",()=>changeQuestion(state.questionPos-1));
+$("nextQuestion").addEventListener("click",()=>changeQuestion(state.questionPos+1));
 $("toggleEnglish").addEventListener("click",()=>{state.hideEnglish=!state.hideEnglish;renderScript();});
 $("toggleKorean").addEventListener("click",()=>{state.hideKorean=!state.hideKorean;renderScript();});
 $("playPause").addEventListener("click",toggleAudio);

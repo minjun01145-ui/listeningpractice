@@ -1,10 +1,66 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 학교 내부용 간단 MVP: 인증 없이 읽기/쓰기 허용.
-    // 인터넷 공개 운영 전에는 반드시 Authentication 기반 규칙으로 변경하세요.
-    match /{document=**} {
-      allow read, write: if true;
+    // 별도 로그인 없이 사용하는 학교 내부용 앱입니다.
+    // 이 앱이 사용하는 컬렉션과 필드만 제한적으로 허용합니다.
+    match /students/{studentNo} {
+      allow read: if true;
+      allow create, update: if studentNo.size() <= 30
+        && request.resource.data.keys().hasOnly(['name', 'updatedAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 50;
+      allow delete: if true;
+    }
+
+    match /rounds/{roundId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.keys().hasOnly([
+          'title', 'questions', 'groups', 'visible',
+          'wholeAudioUrl', 'wholeAudioPath', 'questionTimings',
+          'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 100
+        && request.resource.data.questions is list
+        && request.resource.data.questions.size() > 0
+        && request.resource.data.questions.size() <= 200
+        && request.resource.data.groups is list
+        && request.resource.data.groups.size() <= 50
+        && (!request.resource.data.keys().hasAny(['questionTimings'])
+          || (request.resource.data.questionTimings is list
+            && request.resource.data.questionTimings.size() <= 200))
+        && request.resource.data.visible is bool;
+      allow delete: if true;
+    }
+
+    match /progress/{progressId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.keys().hasOnly([
+          'studentNo', 'name', 'roundId', 'roundTitle', 'groupIndex',
+          'groupLabel', 'listenCount', 'recordCount', 'totalListenSec',
+          'totalRecordSec', 'updatedAt'
+        ])
+        && request.resource.data.studentNo is string
+        && request.resource.data.studentNo.size() <= 30
+        && request.resource.data.name is string
+        && request.resource.data.roundId is string
+        && request.resource.data.groupIndex is int;
+    }
+
+    match /activityLogs/{logId} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly([
+          'studentNo', 'name', 'roundId', 'roundTitle', 'groupIndex',
+          'groupLabel', 'type', 'durationSec', 'readNo', 'recordingUrl',
+          'recordingPath', 'mimeType', 'createdAt'
+        ])
+        && request.resource.data.studentNo is string
+        && request.resource.data.studentNo.size() <= 30
+        && request.resource.data.type in ['listen', 'record']
+        && request.resource.data.durationSec is number
+        && request.resource.data.durationSec >= 0;
     }
   }
 }
