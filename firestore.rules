@@ -46,7 +46,19 @@ service cloud.firestore {
         && request.resource.data.studentNo.size() <= 30
         && request.resource.data.name is string
         && request.resource.data.roundId is string
-        && request.resource.data.groupIndex is int;
+        && request.resource.data.groupIndex is int
+        && request.resource.data.groupIndex >= 0
+        && request.resource.data.listenCount is int
+        && request.resource.data.listenCount >= 0
+        && request.resource.data.listenCount <= 3
+        && request.resource.data.recordCount is int
+        && request.resource.data.recordCount >= 0
+        && request.resource.data.recordCount <= 3
+        && request.resource.data.totalListenSec is number
+        && request.resource.data.totalListenSec >= 0
+        && request.resource.data.totalRecordSec is number
+        && request.resource.data.totalRecordSec >= 0;
+      allow delete: if false;
     }
 
     match /activityLogs/{logId} {
@@ -54,13 +66,19 @@ service cloud.firestore {
       allow create: if request.resource.data.keys().hasOnly([
           'studentNo', 'name', 'roundId', 'roundTitle', 'groupIndex',
           'groupLabel', 'type', 'durationSec', 'readNo', 'recordingUrl',
-          'recordingPath', 'mimeType', 'createdAt'
+          'recordingPath', 'mimeType', 'questionStart', 'questionEnd',
+          'questionRange', 'activityId', 'recordingStartedAtMs', 'createdAt'
         ])
         && request.resource.data.studentNo is string
         && request.resource.data.studentNo.size() <= 30
         && request.resource.data.type in ['listen', 'record']
         && request.resource.data.durationSec is number
         && request.resource.data.durationSec >= 0;
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

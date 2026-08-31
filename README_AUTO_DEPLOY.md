@@ -1,4 +1,4 @@
-# GitHub → Firebase Hosting 자동 배포 설정
+# GitHub → Firebase Hosting + Rules 자동 배포 설정
 
 대상 리포지토리:
 - minjun01145-ui/listeningpractice
@@ -39,7 +39,15 @@ Firebase CLI가 GitHub용 서비스 계정/Secret을 만들어주는 경우에�
 7. Name: FIREBASE_SERVICE_ACCOUNT
 8. Value: JSON 파일 전체 내용
 
-## 3. 작동 확인
+## 3. Rules 배포 권한
+
+같은 `FIREBASE_SERVICE_ACCOUNT`를 Hosting과 Firestore/Storage rules 배포에 사용합니다. Actions 로그에서 permission 오류가 나면 해당 서비스 계정에 누락된 rules 배포 권한을 최소 범위로 추가하세요. 별도 secret은 필요하지 않습니다.
+
+수동 확인 명령:
+
+    firebase deploy --only firestore:rules,storage --project test2222-e2458
+
+## 4. 작동 확인
 main 브랜치에 커밋을 push하면:
 GitHub → Actions → Deploy to Firebase Hosting
 에서 실행 결과를 확인할 수 있습니다.

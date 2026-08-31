@@ -37,8 +37,19 @@
       </section>
 
       <section id="groupSection" class="card hidden">
-        <h2>2. 문제 선택하기</h2>
+        <h2>2. 4문제 묶음 선택하기</h2>
         <div id="groupButtons" class="group-buttons"></div>
+      </section>
+
+      <section class="card device-test-card">
+        <h2>🎤 내 휴대폰 녹음 테스트</h2>
+        <p class="help">숙제를 시작하기 전에 마이크 권한과 녹음 재생을 확인할 수 있습니다. 테스트 음성은 Firebase에 저장되지 않습니다.</p>
+        <div class="row wrap">
+          <button id="deviceTestBtn" class="btn ghost" type="button">테스트 녹음 시작</button>
+          <span id="deviceTestTimer" class="timer compact">00:00</span>
+        </div>
+        <div id="deviceTestStatus" class="help" aria-live="polite">버튼을 누르고 짧게 말해 보세요.</div>
+        <audio id="deviceTestAudio" class="audio-mini hidden" controls></audio>
       </section>
 
       <section id="practiceSection" class="hidden">
@@ -50,18 +61,13 @@
 
         <div class="card script-card">
           <div class="script-heading">
-            <div id="scriptNumber" class="script-number"></div>
+            <div id="scriptNumber" class="script-number">4문제 전체 대본</div>
             <div class="row wrap script-visibility-controls">
               <button id="toggleEnglish" class="btn ghost small" type="button" aria-pressed="false">영어 가리기</button>
               <button id="toggleKorean" class="btn ghost small" type="button" aria-pressed="false">한글 가리기</button>
             </div>
           </div>
           <div id="scriptText" class="script-text"></div>
-          <div class="script-nav">
-            <button id="prevQuestion" class="btn ghost">← 이전</button>
-            <div id="scriptDots" class="dots"></div>
-            <button id="nextQuestion" class="btn ghost">다음 →</button>
-          </div>
         </div>
 
         <div id="listenInfo" class="card">
@@ -72,11 +78,15 @@
 
         <div id="recordInfo" class="card hidden">
           <h3>내 목소리 녹음하기</h3>
-          <p class="help">4~6번째 읽기는 녹음으로 제출합니다. 마이크 권한을 허용해 주세요.</p>
+          <p class="help">녹음 버튼을 한 번 누른 뒤 화면의 4문제를 순서대로 모두 읽고 정지하세요. 한 번의 녹음은 파일 하나로 저장됩니다.</p>
           <div class="record-panel">
             <button id="recordBtn" class="record-btn">녹음</button>
             <div id="recordTimer" class="timer">00:00</div>
             <div id="recordStatus" class="muted">녹음 버튼을 누르면 시작합니다.</div>
+            <div id="retrySavePanel" class="notice error hidden">
+              <div>녹음은 완료되었습니다. 인터넷 연결 문제로 저장하지 못했습니다. 다시 녹음할 필요 없이 저장을 다시 시도하세요.</div>
+              <button id="retrySaveBtn" class="btn primary" type="button">다시 저장</button>
+            </div>
           </div>
         </div>
       </section>
@@ -92,7 +102,11 @@
     </select>
   </div>
 
+  <div id="savingOverlay" class="saving-overlay hidden" role="status" aria-live="assertive">
+    <div>녹음을 저장하고 있습니다...</div>
+  </div>
+
   <audio id="practiceAudio" preload="metadata"></audio>
-  <script type="module" src="./student.js?v=20260828-2"></script>
+  <script type="module" src="./student.js?v=20260831-1"></script>
 </body>
 </html>
