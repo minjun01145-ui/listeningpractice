@@ -14,11 +14,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud for rules deployment
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-
       - name: Deploy to Firebase Hosting live channel
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
@@ -26,6 +21,3 @@ jobs:
           projectId: test2222-e2458
           target: listeningpractice
           channelId: live
-
-      - name: Deploy Firestore and Storage rules
-        run: npx --yes firebase-tools@14.16.0 deploy --only firestore:rules,storage --project test2222-e2458 --non-interactive

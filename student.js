@@ -164,7 +164,10 @@ async function completeListen(){
       transaction.set(logRef,{studentNo:snapshot.studentNo,name:snapshot.studentName,roundId:snapshot.roundId,roundTitle:snapshot.roundTitle,groupIndex:snapshot.groupIndex,groupLabel:snapshot.groupLabel,questionStart:snapshot.questionStart,questionEnd:snapshot.questionEnd,questionRange:snapshot.questionRange,type:"listen",durationSec:Math.round(duration),readNo:snapshot.readNo,activityId:attemptId,createdAt:serverTimestamp()});
       return {listenCount,totalListenSec};
     });
-    if(result){state.progress.listenCount=result.listenCount;state.progress.totalListenSec=result.totalListenSec;renderProgress();await loadLatestProgress();}
+    if(result){
+      state.progress.listenCount=result.listenCount;state.progress.totalListenSec=result.totalListenSec;renderProgress();
+      try{await loadLatestProgress();}catch(error){console.warn("듣기 저장 후 최신 진행 상황을 불러오지 못했습니다.",error);}
+    }
     if(mode()==="listen"){audio.currentTime=getSegmentBounds().start;state.segmentEnded=false;}
   }catch(error){console.error("듣기 기록 저장 실패",error);state.segmentEnded=false;alert("듣기는 끝났지만 진행 상황을 저장하지 못했습니다. 인터넷 연결을 확인한 뒤 음원을 다시 재생해 주세요.");}
   finally{state.completingListen=false;}
@@ -212,7 +215,8 @@ async function uploadPendingRecording(){
       return {duplicate:false,progress:{recordCount,totalRecordSec}};
     });
     if(state.round?.id===snapshot.roundId&&state.groupIndex===snapshot.groupIndex){state.progress.recordCount=Number(result.progress.recordCount)||state.progress.recordCount||0;state.progress.totalRecordSec=Number(result.progress.totalRecordSec)||state.progress.totalRecordSec||0;renderProgress();updateCurrentGroupButton();}
-    state.pendingRecording=null;resetRecordUi(result.duplicate?"이미 저장된 녹음입니다. 진도는 한 번만 반영되었습니다.":"녹음 저장이 완료되었습니다.");await loadLatestProgress();
+    state.pendingRecording=null;resetRecordUi(result.duplicate?"이미 저장된 녹음입니다. 진도는 한 번만 반영되었습니다.":"녹음 저장이 완료되었습니다.");
+    try{await loadLatestProgress();}catch(error){console.warn("녹음 저장 후 최신 진행 상황을 불러오지 못했습니다.",error);}
   }catch(error){console.error("녹음 저장 실패",error);$("recordStatus").textContent="녹음은 완료되었습니다. 다시 녹음하지 말고 ‘다시 저장’을 눌러 주세요.";$("retrySavePanel").classList.remove("hidden");$("recordBtn").textContent="녹음 완료";}
   finally{setBusy(false);if(state.pendingRecording)$("recordBtn").disabled=true;}
 }
@@ -249,7 +253,7 @@ $("forward3").addEventListener("click",()=>{const {end}=getSegmentBounds(),maxim
 $("speedSelect").addEventListener("change",event=>{audio.playbackRate=Number(event.target.value);});$("recordBtn").addEventListener("click",()=>state.recording?stopRecording():startRecording());$("retrySaveBtn").addEventListener("click",uploadPendingRecording);$("deviceTestBtn").addEventListener("click",toggleDeviceTest);
 audio.addEventListener("play",()=>{state.lastPlayTick=performance.now();});audio.addEventListener("pause",()=>{updatePlayedTime();state.lastPlayTick=0;});audio.addEventListener("timeupdate",()=>{const {end}=getSegmentBounds();if(end&&audio.currentTime>=end-.08&&!state.segmentEnded)completeListen();});audio.addEventListener("ended",()=>{if(!state.segmentEnded)completeListen();});
 document.addEventListener("visibilitychange",()=>{if(document.hidden&&!audio.paused){updatePlayedTime();audio.pause();$("playPause").textContent="재생";}});
-window.addEventListener("beforeunload",event=>{if(state.busy){event.preventDefault();event.returnValue="";}});
+window.addEventListener("beforeunload",event=>{if(state.busy||state.pendingRecording||state.recording){event.preventDefault();event.returnValue="";}});
 window.addEventListener("unload",()=>{stopTracks(state.recording);stopTracks(state.testRecording);if(state.testAudioUrl)URL.revokeObjectURL(state.testAudioUrl);});
 
 const cached=sessionStorage.getItem("elisteningStudent");if(cached){try{state.student=JSON.parse(cached);enterApp().catch(()=>sessionStorage.removeItem("elisteningStudent"));}catch{sessionStorage.removeItem("elisteningStudent");}}

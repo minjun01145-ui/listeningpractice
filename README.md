@@ -144,11 +144,11 @@ gcloud storage buckets update gs://YOUR_BUCKET_NAME --lifecycle-file=lifecycle.j
 
 프론트엔드에 관리자 비밀번호나 secret을 넣는 방식은 사용하지 마세요. `teacher.html` 주소 자체도 접근 제어가 아니므로 인증 도입 전에는 민감한 운영에 적합하지 않습니다.
 
-## 12. Rules 자동 배포
+## 12. Rules 수동 배포
 
-`.github/workflows/firebase-hosting-live.yml`은 main push 때 Hosting 다음에 Firestore rules와 Storage rules도 배포합니다. 기존 `FIREBASE_SERVICE_ACCOUNT` secret을 함께 사용하므로 추가 secret은 필요하지 않습니다.
+`.github/workflows/firebase-hosting-live.yml`은 main push 때 학생 사이트의 Firebase Hosting 배포만 수행합니다. Rules 배포의 인증 또는 권한 문제가 Hosting 배포를 막지 않도록 Firestore rules와 Storage rules는 별도로 수동 배포합니다.
 
-GitHub Actions에서 rules 배포 권한 오류가 나면 Firebase/Google Cloud Console에서 해당 서비스 계정에 Firestore 및 Storage rules 배포에 필요한 최소 권한을 추가해야 합니다. 권한을 넓히기 전에 실패 로그의 누락 permission을 기준으로 최소 권한만 부여하세요. 수동 배포는 다음과 같습니다.
+Firebase CLI에 로그인하고 프로젝트 권한이 있는 계정으로 다음 명령을 실행하세요.
 
 ```bash
 firebase deploy --only firestore:rules,storage --project test2222-e2458
