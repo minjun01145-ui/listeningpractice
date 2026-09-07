@@ -5,13 +5,16 @@ import {
 import {
   ref, uploadBytes, getDownloadURL, deleteObject
 } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-storage.js";
+import { getQuestionGroupLabel, getQuestionGroupRanges } from "./question-groups.js";
 
 const $=id=>document.getElementById(id);
 const state={students:[],rounds:[],parsedQuestions:[]};
 function escapeHtml(s=""){return String(s).replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));}
 function fmtSec(sec=0){sec=Math.max(0,Math.round(Number(sec)||0));return `${Math.floor(sec/60)}분 ${sec%60}초`;}
 function fmtDate(ts){if(!ts)return "-"; const d=ts.toDate?ts.toDate():new Date(ts);return d.toLocaleString("ko-KR",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"});}
-function groupLabel(round,index){return round.groups?.[index]?.label||`${index*4+1}-${Math.min(index*4+4,round.questions.length)}번`;}
+function groupLabel(round,index){
+  return getQuestionGroupLabel(round?.questions||[],index);
+}
 
 function parseQuestions(text){
   const lines=text.replace(/\r/g,"").split("\n"); const out=[]; let current=null;
@@ -28,7 +31,7 @@ function parseQuestions(text){
   }
   finish();return out;
 }
-function buildGroups(questions){return Array.from({length:Math.ceil(questions.length/4)},(_,i)=>({index:i,label:`${questions[i*4]?.number ?? i*4+1}-${questions[Math.min(i*4+3,questions.length-1)]?.number ?? i*4+4}번`,audioUrl:"",audioPath:"",segmentStart:"",segmentEnd:""}));}
+function buildGroups(questions){return getQuestionGroupRanges(questions).map((_,index)=>({index,label:getQuestionGroupLabel(questions,index),audioUrl:"",audioPath:"",segmentStart:"",segmentEnd:""}));}
 function parseQuestionTimings(text){
   const normalized=text.replace(/<br\s*\/?\s*>/gi,"\n").replace(/\*\*/g,"");
   const re=/(\d{1,3})\s*번\s*(?:\||:|-)?\s*(\d{1,3}):([0-5]\d)(?::([0-5]\d))?/g;
@@ -41,7 +44,7 @@ function parseQuestionTimings(text){
 }
 function formatTimestamp(sec){sec=Math.max(0,Math.floor(Number(sec)||0));const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;return h?`${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`:`${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;}
 function timingsToText(timings=[]){return timings.map(t=>`${t.number}번\t${formatTimestamp(t.start)}`).join("\n");}
-function showPreview(){const qs=state.parsedQuestions;const rowCount=qs.reduce((sum,q)=>sum+q.rows.length,0);$("parseSummary").textContent=qs.length?`${qs.length}문제 · 영어/한글 ${rowCount}줄 인식 · ${Math.ceil(qs.length/4)}개 묶음`:`번호와 탭으로 구분된 영어/한글 문장을 인식하지 못했습니다.`;$("scriptPreview").classList.toggle("hidden",!qs.length);$("scriptPreview").innerHTML=qs.map(q=>`<div class="preview-q"><b>${q.number}번</b><div class="bilingual-preview">${q.rows.map(r=>`<div>${escapeHtml(r.english)}</div><div>${escapeHtml(r.korean)}</div>`).join("")}</div></div>`).join("");}
+function showPreview(){const qs=state.parsedQuestions;const rowCount=qs.reduce((sum,q)=>sum+q.rows.length,0);$("parseSummary").textContent=qs.length?`${qs.length}문제 · 영어/한글 ${rowCount}줄 인식 · ${getQuestionGroupRanges(qs).length}개 묶음`:`번호와 탭으로 구분된 영어/한글 문장을 인식하지 못했습니다.`;$("scriptPreview").classList.toggle("hidden",!qs.length);$("scriptPreview").innerHTML=qs.map(q=>`<div class="preview-q"><b>${q.number}번</b><div class="bilingual-preview">${q.rows.map(r=>`<div>${escapeHtml(r.english)}</div><div>${escapeHtml(r.korean)}</div>`).join("")}</div></div>`).join("");}
 
 async function loadStudents(){const snap=await getDocs(collection(db,"students"));state.students=snap.docs.map(d=>({studentNo:d.id,...d.data()})).sort((a,b)=>a.studentNo.localeCompare(b.studentNo,"ko",{numeric:true}));$("studentTableBody").innerHTML=state.students.map(s=>`<tr><td>${escapeHtml(s.studentNo)}</td><td>${escapeHtml(s.name)}</td><td><button class="btn danger small" data-del-student="${escapeHtml(s.studentNo)}">삭제</button></td></tr>`).join("")||`<tr><td colspan="3" class="muted">등록된 학생이 없습니다.</td></tr>`;document.querySelectorAll("[data-del-student]").forEach(b=>b.addEventListener("click",()=>deleteStudent(b.dataset.delStudent)));}
 async function addStudent(no,name){no=no.trim();name=name.trim();if(!no||!name)throw new Error("학번과 이름을 입력하세요.");if(no.includes("/"))throw new Error("학번에는 / 문자를 사용할 수 없습니다.");await setDoc(doc(db,"students",no),{name,updatedAt:serverTimestamp()},{merge:true});}

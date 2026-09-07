@@ -1,6 +1,7 @@
 import { db, storage } from "./firebase.js";
 import { collection, doc, getDoc, getDocs, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
 import { ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-storage.js";
+import { getQuestionGroupLabel, getQuestionGroupRanges } from "./question-groups.js";
 
 const $ = id => document.getElementById(id);
 const audio = $("practiceAudio");
@@ -18,10 +19,7 @@ function uniqueId(){return crypto.randomUUID?.()||`${Date.now()}-${Math.random()
 function safePathPart(value){return String(value).replace(/[^a-zA-Z0-9가-힣._-]/g,"_").slice(0,80)||"unknown";}
 function progressId(studentNo,roundId,groupIndex){return `${studentNo}__${roundId}__g${groupIndex}`;}
 function groupLabel(round,index){
-  const questions=round?.questions||[];
-  const first=questions[index*4]?.number??index*4+1;
-  const last=questions[Math.min(index*4+3,questions.length-1)]?.number??index*4+4;
-  return round?.groups?.[index]?.label||`${first}-${last}번`;
+  return getQuestionGroupLabel(round?.questions||[],index);
 }
 function effectiveCounts(progress){return {listen:Math.min(3,Math.max(0,Number(progress?.listenCount)||0)),record:Math.min(3,Math.max(0,Number(progress?.recordCount)||0))};}
 function currentReadNo(){const counts=effectiveCounts(state.progress);return Math.min(7,counts.listen+counts.record+1);}
@@ -84,7 +82,7 @@ async function selectRound(roundId){
   await stopAllMedia();state.round=state.rounds.find(round=>round.id===roundId)||null;state.groupIndex=null;state.progress=null;
   $("practiceSection").classList.add("hidden");$("floatingAudio").classList.add("hidden");
   if(!state.round){$("groupSection").classList.add("hidden");return;}
-  const count=Math.ceil((state.round.questions?.length||0)/4),buttons=[];
+  const count=getQuestionGroupRanges(state.round.questions||[]).length,buttons=[];
   for(let index=0;index<count;index+=1){
     const snap=await getDoc(doc(db,"progress",progressId(state.student.studentNo,state.round.id,index))),counts=effectiveCounts(snap.exists()?snap.data():null),done=counts.listen===3&&counts.record===3;
     buttons.push(`<button type="button" class="btn group-btn ${done?"done":""}" data-group="${index}">${escapeHtml(groupLabel(state.round,index))}${done?" ✓":""}</button>`);
@@ -95,7 +93,9 @@ async function selectRound(roundId){
 async function openGroup(index){
   if(isInteractionLocked())return alert("현재 녹음 또는 저장이 끝난 뒤 다른 묶음을 선택해 주세요.");
   if(state.pendingRecording)return alert("완료된 녹음의 ‘다시 저장’을 먼저 눌러 주세요. 다시 녹음할 필요는 없습니다.");
-  await stopAllMedia();state.groupIndex=index;state.groupQuestions=(state.round.questions||[]).slice(index*4,index*4+4);
+  const range=getQuestionGroupRanges(state.round.questions||[])[index];
+  if(!range)return;
+  await stopAllMedia();state.groupIndex=index;state.groupQuestions=(state.round.questions||[]).slice(range.start,range.end);
   const snap=await getDoc(doc(db,"progress",progressId(state.student.studentNo,state.round.id,index)));
   state.progress=snap.exists()?snap.data():{studentNo:state.student.studentNo,name:state.student.name,roundId:state.round.id,roundTitle:state.round.title,groupIndex:index,groupLabel:groupLabel(state.round,index),listenCount:0,recordCount:0,totalListenSec:0,totalRecordSec:0};
   $("practiceSection").classList.remove("hidden");$("practiceTitle").textContent=`${state.round.title} · ${groupLabel(state.round,index)}`;
@@ -110,15 +110,16 @@ function renderScript(){
 }
 function renderProgress(){
   const counts=effectiveCounts(state.progress),readNo=currentReadNo(),currentMode=mode();
+  const questionCount=state.groupQuestions.length;
   $("readSteps").innerHTML=Array.from({length:6},(_,index)=>{const step=index+1,type=step<=3?"listen":"record",done=step<=counts.listen||(step>3&&step<=3+counts.record);return `<div class="read-step ${type} ${done?"done":""} ${step===readNo?"active":""}">${step}회<br>${type==="listen"?"듣기":"녹음"}${done?" ✓":""}</div>`;}).join("");
   if(currentMode==="done"){
-    $("readStatus").textContent="이 4문제 묶음의 필수 6회를 모두 완료했습니다.";$("readModePill").textContent="완료";$("readModePill").className="status-pill success";
+    $("readStatus").textContent=`이 ${questionCount}문제 묶음의 필수 6회를 모두 완료했습니다.`;$("readModePill").textContent="완료";$("readModePill").className="status-pill success";
     $("listenInfo").classList.add("hidden");$("recordInfo").classList.add("hidden");$("floatingAudio").classList.add("hidden");
   }else if(currentMode==="listen"){
     $("readStatus").textContent=`${readNo}회 듣기 · 묶음 전체 음원을 들으며 따라 읽기`;$("readModePill").textContent=`듣기 ${counts.listen}/3`;$("readModePill").className="status-pill";
     $("listenInfo").classList.remove("hidden");$("recordInfo").classList.add("hidden");if(audio.src)$("floatingAudio").classList.remove("hidden");
   }else{
-    $("readStatus").textContent=`${readNo}회 녹음 · 4문제를 한 번에 읽기`;$("readModePill").textContent=`녹음 ${counts.record}/3`;$("readModePill").className="status-pill warn";
+    $("readStatus").textContent=`${readNo}회 녹음 · ${questionCount}문제를 한 번에 읽기`;$("readModePill").textContent=`녹음 ${counts.record}/3`;$("readModePill").className="status-pill warn";
     $("listenInfo").classList.add("hidden");$("recordInfo").classList.remove("hidden");$("floatingAudio").classList.add("hidden");
   }
 }
@@ -148,7 +149,8 @@ async function toggleAudio(){
   else{updatePlayedTime();audio.pause();$("playPause").textContent="재생";}
 }
 function learningSnapshot(readNo){
-  const first=state.groupQuestions[0]?.number??state.groupIndex*4+1,last=state.groupQuestions[state.groupQuestions.length-1]?.number??state.groupIndex*4+4;
+  const range=getQuestionGroupRanges(state.round?.questions||[])[state.groupIndex];
+  const first=state.groupQuestions[0]?.number??(range?.start??0)+1,last=state.groupQuestions[state.groupQuestions.length-1]?.number??range?.end??first;
   return {studentNo:state.student.studentNo,studentName:state.student.name,roundId:state.round.id,roundTitle:state.round.title,groupIndex:state.groupIndex,groupLabel:groupLabel(state.round,state.groupIndex),questionStart:Number(first),questionEnd:Number(last),questionRange:`${first}-${last}번`,readNo,startedAtMs:Date.now()};
 }
 async function completeListen(){
