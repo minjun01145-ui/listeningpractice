@@ -1,4 +1,5 @@
 const GROUP_SIZES_BY_QUESTION_COUNT = new Map([
+  [16, [3, 3, 3, 3, 4]],
   [17, [3, 3, 3, 3, 3, 2]],
 ]);
 

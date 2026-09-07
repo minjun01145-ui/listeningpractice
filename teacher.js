@@ -5,7 +5,7 @@ import {
 import {
   ref, uploadBytes, getDownloadURL, deleteObject
 } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-storage.js";
-import { getQuestionGroupLabel, getQuestionGroupRanges } from "./question-groups.js";
+import { getQuestionGroupLabel, getQuestionGroupRanges } from "./question-groups.js?v=20260907-2";
 
 const $=id=>document.getElementById(id);
 const state={students:[],rounds:[],parsedQuestions:[]};
