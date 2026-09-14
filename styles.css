@@ -42,6 +42,10 @@ a { color: var(--brand); }
 .login-card { max-width: 460px; margin: 9vh auto 0; }
 .field { margin: 12px 0; }
 .field label { display:block; font-weight: 700; margin-bottom: 7px; }
+.option-card { display:flex; align-items:flex-start; gap:11px; margin:12px 0; padding:13px 14px; border:1px solid var(--line); border-radius:12px; background:#f8fafc; cursor:pointer; }
+.option-card input { width:18px; height:18px; margin:2px 0 0; accent-color:var(--brand); flex:0 0 auto; }
+.option-card span { display:grid; gap:4px; }
+.option-card small { color:var(--muted); line-height:1.5; }
 .field input, .field textarea, .field select, input.input, select.input, textarea.input {
   width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 12px 13px;
   background: #fff; color: var(--text); outline: none;
@@ -55,6 +59,10 @@ a { color: var(--brand); }
 .row > .grow { flex:1; }
 .grid-2 { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; }
 .grid-3 { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
+.exam-prep-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+.exam-prep-editor { padding:12px; border:1px solid var(--line); border-radius:14px; background:#f8fafc; }
+.exam-prep-editor .field:first-child { margin-top:0; }
+.exam-prep-editor textarea { min-height:220px; }
 .btn {
   border: 0; border-radius: 12px; padding: 11px 15px; background: #e5e7eb; color: #111827; font-weight: 750;
 }
@@ -76,10 +84,12 @@ a { color: var(--brand); }
 .section-title h2 { margin:0; }
 .group-buttons { display:grid; grid-template-columns: repeat(auto-fill, minmax(130px,1fr)); gap:10px; }
 .group-btn { text-align:center; }
+.group-btn:disabled { opacity:.68; }
 .group-btn.done { background: var(--success-soft); color: var(--success); border: 1px solid #86efac; }
+.group-btn.done:disabled { opacity:1; }
 
 .progress-strip { position: sticky; top: 8px; z-index: 10; background: rgba(255,255,255,.96); backdrop-filter: blur(8px); }
-.read-steps { display:grid; grid-template-columns: repeat(6,1fr); gap:7px; margin-top: 12px; }
+.read-steps { display:grid; grid-template-columns: repeat(var(--read-step-count, 6),1fr); gap:7px; margin-top: 12px; }
 .read-step { text-align:center; padding:8px 3px; border-radius:10px; background:#eef2f7; font-size:12px; font-weight:800; color:#6b7280; }
 .read-step.listen.done, .read-step.listen.active { background:var(--brand-soft); color:var(--brand); }
 .read-step.record.done, .read-step.record.active { background:var(--danger-soft); color:var(--danger); }
@@ -137,7 +147,25 @@ table { width:100%; border-collapse:collapse; min-width:720px; background:white;
 th, td { padding:11px 12px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; font-size:14px; }
 th { background:#f8fafc; position:sticky; top:0; z-index:2; }
 tr:last-child td { border-bottom:0; }
+.progress-toolbar { display:grid; gap:10px; margin-bottom:14px; }
+.progress-toolbar input[type="checkbox"] { width:17px; height:17px; accent-color:var(--brand); vertical-align:middle; }
+.progress-toolbar input[type="date"] { margin-left:5px; padding:6px 8px; border:1px solid var(--line); border-radius:9px; background:white; }
+.weekly-legend { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:13px; font-weight:800; }
+.weekly-status { display:inline-block; min-width:22px; text-align:center; font-size:22px; line-height:1; font-weight:900; }
+.weekly-status.complete { color:var(--success); }
+.weekly-status.partial { color:var(--warning); }
+.weekly-status.none { color:var(--danger); }
+.weekly-cell, .weekly-day-head { min-width:58px; text-align:center; vertical-align:middle; }
+.weekly-day-head span { color:var(--muted); font-size:12px; font-weight:600; }
 .round-card { border:1px solid var(--line); border-radius:14px; padding:14px; margin:10px 0; }
+.round-summary { margin-bottom:0; }
+.round-summary h3 { margin:0 0 4px; }
+.round-card.expanded .round-summary { padding-bottom:14px; border-bottom:1px solid var(--line); }
+.round-details { padding-top:14px; }
+.round-edit-section { border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:14px; background:#f8fafc; }
+.round-edit-section h4 { margin:0 0 10px; }
+.round-edit-section select.input.round-grade-select { width:140px; flex:0 0 140px; }
+.round-script-textarea { min-height:280px !important; margin-bottom:10px; }
 .timing-editor { border:1px solid var(--line); border-radius:12px; padding:12px; margin-top:12px; background:#f8fafc; }
 .timing-editor textarea { min-height:130px; margin:8px 0; font-variant-numeric:tabular-nums; }
 .group-editor { border-top:1px dashed var(--line); padding-top:12px; margin-top:12px; }
@@ -156,7 +184,7 @@ tr:last-child td { border-bottom:0; }
 @media (max-width: 680px) {
   .app-shell { padding:14px 11px 118px; }
   .card { padding:15px; border-radius:15px; }
-  .grid-2, .grid-3 { grid-template-columns:1fr; }
+  .grid-2, .grid-3, .exam-prep-grid { grid-template-columns:1fr; }
   .script-text { font-size:17px; }
   .script-heading { align-items:flex-start; flex-direction:column; }
   .script-visibility-controls { width:100%; }

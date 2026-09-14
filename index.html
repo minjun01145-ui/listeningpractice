@@ -32,12 +32,18 @@
       </section>
 
       <section class="card">
-        <h2>1. 회차 선택하기</h2>
+        <h2>1. 학년 선택하기</h2>
+        <select id="gradeSelect" class="input"><option value="">학년을 선택하세요</option><option value="중1">중1</option><option value="중2">중2</option><option value="중3">중3</option><option value="고1">고1</option></select>
+      </section>
+
+      <section id="roundSection" class="card hidden">
+        <h2>2. 세트 선택하기</h2>
         <select id="roundSelect" class="input"><option value="">회차를 선택하세요</option></select>
       </section>
 
       <section id="groupSection" class="card hidden">
-        <h2>2. 문제 묶음 선택하기</h2>
+        <h2 id="groupHeading">3. 문제 묶음 선택하기</h2>
+        <div id="groupScheduleNotice" class="notice hidden"></div>
         <div id="groupButtons" class="group-buttons"></div>
       </section>
 
@@ -78,7 +84,7 @@
 
         <div id="recordInfo" class="card hidden">
           <h3>내 목소리 녹음하기</h3>
-          <p class="help">녹음 버튼을 한 번 누른 뒤 화면의 문제를 순서대로 모두 읽고 정지하세요. 한 번의 녹음은 파일 하나로 저장됩니다.</p>
+          <p id="recordGuide" class="help">녹음 버튼을 한 번 누른 뒤 화면의 문제를 순서대로 모두 읽고 정지하세요. 한 번의 녹음은 파일 하나로 저장됩니다.</p>
           <div class="record-panel">
             <button id="recordBtn" class="record-btn">녹음</button>
             <div id="recordTimer" class="timer">00:00</div>
@@ -107,6 +113,6 @@
   </div>
 
   <audio id="practiceAudio" preload="metadata"></audio>
-  <script type="module" src="./student.js?v=20260907-2"></script>
+  <script type="module" src="./student.js?v=20260914-3"></script>
 </body>
 </html>

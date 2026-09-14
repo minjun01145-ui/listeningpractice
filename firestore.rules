@@ -16,18 +16,22 @@ service cloud.firestore {
     match /rounds/{roundId} {
       allow read: if true;
       allow create, update: if request.resource.data.keys().hasOnly([
-          'title', 'questions', 'groups', 'visible',
+          'title', 'grade', 'questions', 'groups', 'visible',
           'wholeAudioUrl', 'wholeAudioPath', 'questionTimings',
-          'createdAt', 'updatedAt'
+          'isExamPrep', 'createdAt', 'updatedAt'
         ])
         && request.resource.data.title is string
         && request.resource.data.title.size() > 0
         && request.resource.data.title.size() <= 100
+        && (!request.resource.data.keys().hasAny(['grade'])
+          || request.resource.data.grade in ['중1', '중2', '중3', '고1'])
         && request.resource.data.questions is list
         && request.resource.data.questions.size() > 0
         && request.resource.data.questions.size() <= 200
         && request.resource.data.groups is list
         && request.resource.data.groups.size() <= 50
+        && (!request.resource.data.keys().hasAny(['isExamPrep'])
+          || request.resource.data.isExamPrep is bool)
         && (!request.resource.data.keys().hasAny(['questionTimings'])
           || (request.resource.data.questionTimings is list
             && request.resource.data.questionTimings.size() <= 200))
@@ -40,7 +44,7 @@ service cloud.firestore {
       allow create, update: if request.resource.data.keys().hasOnly([
           'studentNo', 'name', 'roundId', 'roundTitle', 'groupIndex',
           'groupLabel', 'listenCount', 'recordCount', 'totalListenSec',
-          'totalRecordSec', 'updatedAt'
+          'totalRecordSec', 'sessionIndex', 'updatedAt'
         ])
         && request.resource.data.studentNo is string
         && request.resource.data.studentNo.size() <= 30
@@ -53,7 +57,11 @@ service cloud.firestore {
         && request.resource.data.listenCount <= 3
         && request.resource.data.recordCount is int
         && request.resource.data.recordCount >= 0
-        && request.resource.data.recordCount <= 3
+        && request.resource.data.recordCount <= 5
+        && (!request.resource.data.keys().hasAny(['sessionIndex'])
+          || (request.resource.data.sessionIndex is int
+            && request.resource.data.sessionIndex >= 0
+            && request.resource.data.sessionIndex < 6))
         && request.resource.data.totalListenSec is number
         && request.resource.data.totalListenSec >= 0
         && request.resource.data.totalRecordSec is number
@@ -67,14 +75,28 @@ service cloud.firestore {
           'studentNo', 'name', 'roundId', 'roundTitle', 'groupIndex',
           'groupLabel', 'type', 'durationSec', 'readNo', 'recordingUrl',
           'recordingPath', 'mimeType', 'questionStart', 'questionEnd',
-          'questionRange', 'activityId', 'recordingStartedAtMs', 'createdAt'
+          'questionRange', 'activityId', 'recordingStartedAtMs',
+          'sessionIndex', 'createdAt'
         ])
         && request.resource.data.studentNo is string
         && request.resource.data.studentNo.size() <= 30
         && request.resource.data.type in ['listen', 'record']
         && request.resource.data.durationSec is number
-        && request.resource.data.durationSec >= 0;
+        && request.resource.data.durationSec >= 0
+        && (!request.resource.data.keys().hasAny(['sessionIndex'])
+          || (request.resource.data.sessionIndex is int
+            && request.resource.data.sessionIndex >= 0
+            && request.resource.data.sessionIndex < 6));
       allow update, delete: if false;
+    }
+
+    match /settings/{settingId} {
+      allow read: if settingId == 'managementGroup';
+      allow create, update: if settingId == 'managementGroup'
+        && request.resource.data.keys().hasOnly(['studentNos', 'updatedAt'])
+        && request.resource.data.studentNos is list
+        && request.resource.data.studentNos.size() <= 500;
+      allow delete: if false;
     }
 
     match /{document=**} {

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>영어 듣기 교사용 관리</title>
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./styles.css?v=20260914-2" />
 </head>
 <body>
   <main class="app-shell">
@@ -47,10 +47,23 @@
       <div class="card">
         <h2>새 회차 만들기</h2>
         <div class="field"><label>회차 이름</label><input id="roundTitle" placeholder="예: 2026 영어듣기 2회" /></div>
-        <div class="field">
+        <div class="field"><label>학년</label><select id="roundGrade"><option value="">학년을 선택하세요</option><option value="중1">중1</option><option value="중2">중2</option><option value="중3">중3</option><option value="고1">고1</option></select></div>
+        <label class="option-card" for="isExamPrep">
+          <input id="isExamPrep" type="checkbox" />
+          <span><b>시험대비 세트</b><small>제목과 내용 3덩어리를 한 세트로 저장합니다. 1→2→3→1→2→3 순서의 6개 항목이 모두 열리며 각 항목을 5회 녹음합니다.</small></span>
+        </label>
+        <div id="regularScriptField" class="field">
           <label>영어·한글 대본 붙여넣기</label>
           <textarea id="scriptInput" style="min-height:260px" placeholder="1번\nHello.\t안녕하세요.\nHow are you?\t어떻게 지내세요?\n\n2번\nThank you.\t고맙습니다."></textarea>
           <div class="help">번호는 <b>1번</b>처럼 한 줄에 입력하고, 각 문장은 <b>영어 → Tab 키 → 한글</b> 순서로 입력하세요. 1. / 1) / [1] 번호 형식도 인식합니다.</div>
+        </div>
+        <div id="examPrepFields" class="hidden">
+          <p class="help">내용을 자유롭게 붙여넣으세요. 한글 해석도 표시하려면 <b>영어 → Tab 키 → 한글</b> 형식을 사용하면 됩니다. 문제 번호는 있어도 되고 없어도 됩니다.</p>
+          <div class="exam-prep-grid">
+            <div class="exam-prep-editor"><div class="field"><label>1번 덩어리 제목</label><input id="prepTitle1" placeholder="예: 4과듣기" /></div><div class="field"><label>1번 덩어리 내용</label><textarea id="prepScript1" placeholder="Listen carefully.\t잘 들어 보세요."></textarea></div></div>
+            <div class="exam-prep-editor"><div class="field"><label>2번 덩어리 제목</label><input id="prepTitle2" placeholder="예: 4과문법" /></div><div class="field"><label>2번 덩어리 내용</label><textarea id="prepScript2" placeholder="I have finished it.\t나는 그것을 끝냈다."></textarea></div></div>
+            <div class="exam-prep-editor"><div class="field"><label>3번 덩어리 제목</label><input id="prepTitle3" placeholder="예: 4과본문" /></div><div class="field"><label>3번 덩어리 내용</label><textarea id="prepScript3" placeholder="본문의 영어와 한글을 Tab으로 구분해 입력"></textarea></div></div>
+          </div>
         </div>
         <div class="row wrap"><button id="parseScriptBtn" class="btn">자동 분할 미리보기</button><button id="saveRoundBtn" class="btn primary">회차 저장</button><span id="parseSummary" class="help"></span></div>
         <div id="scriptPreview" class="preview-list hidden"></div>
@@ -65,8 +78,13 @@
 
     <section id="tab-progress" class="tab-panel hidden">
       <div class="card">
-        <div class="section-title"><h2>학생별 현재 진도</h2><button id="refreshProgress" class="btn primary small">진도 새로고침</button></div>
-        <div class="table-wrap"><table><thead><tr><th>학번</th><th>이름</th><th>최근 위치</th><th>음원 재생</th><th>녹음</th><th>최근 활동</th><th>열람</th></tr></thead><tbody id="progressTableBody"></tbody></table></div>
+        <div class="section-title"><h2 id="progressViewTitle">학생별 현재 진도</h2><button id="refreshProgress" class="btn primary small">진도 새로고침</button></div>
+        <div class="progress-toolbar">
+          <div class="row wrap"><button id="showAllProgress" class="btn primary small">전체 학생 보기</button><button id="showManagedProgress" class="btn ghost small">관리그룹 보기</button><span id="managementGroupCount" class="status-pill">0명 관리 중</span></div>
+          <div id="managementEditControls" class="row wrap"><label class="help"><input id="selectAllStudents" type="checkbox"> 전체 선택</label><button id="saveManagementGroup" class="btn success small">체크한 학생으로 관리그룹 저장</button></div>
+          <div id="managementWeekControls" class="row wrap hidden"><button id="previousWeek" class="btn ghost small">← 이전 주</button><label class="help">주차 선택 <input id="managementWeek" type="date"></label><button id="nextWeek" class="btn ghost small">다음 주 →</button><b id="managementWeekLabel"></b><span class="weekly-legend"><span class="weekly-status complete">○ 완료</span><span class="weekly-status partial">△ 미완료</span><span class="weekly-status none">× 시도 없음</span></span></div>
+        </div>
+        <div class="table-wrap"><table><thead id="progressTableHead"></thead><tbody id="progressTableBody"></tbody></table></div>
       </div>
     </section>
   </main>
@@ -78,6 +96,6 @@
     </div>
   </div>
 
-  <script type="module" src="./teacher.js?v=20260907-2"></script>
+  <script type="module" src="./teacher.js?v=20260914-4"></script>
 </body>
 </html>
