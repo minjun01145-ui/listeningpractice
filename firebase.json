@@ -4,6 +4,20 @@
       "target": "listeningpractice",
       "public": ".",
       "cleanUrls": true,
+      "headers": [
+        {
+          "source": "/teacher",
+          "headers": [
+            { "key": "Cache-Control", "value": "no-store, max-age=0" }
+          ]
+        },
+        {
+          "source": "/teacher.html",
+          "headers": [
+            { "key": "Cache-Control", "value": "no-store, max-age=0" }
+          ]
+        }
+      ],
       "ignore": [
         "firebase.json",
         ".firebaserc",
