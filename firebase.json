@@ -3,9 +3,27 @@
     {
       "target": "listeningpractice",
       "public": ".",
-      "ignore": ["firebase.json", ".firebaserc", "**/.*", "**/node_modules/**", "README.md", "lifecycle.json", "firestore.rules", "storage.rules"]
+      "ignore": [
+        "firebase.json",
+        ".firebaserc",
+        "**/.*",
+        ".git/**",
+        ".firebase/**",
+        "**/.git/**",
+        "**/.firebase/**",
+        "**/node_modules/**",
+        ".github/**",
+        "README*",
+        "lifecycle.json",
+        "firestore.rules",
+        "storage.rules"
+      ]
     }
   ],
-  "firestore": { "rules": "firestore.rules" },
-  "storage": { "rules": "storage.rules" }
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  }
 }

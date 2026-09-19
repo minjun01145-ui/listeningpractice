@@ -1,12 +1,12 @@
 {
   "projects": {
-    "default": "test2222-e2458"
+    "default": "listening-7680f"
   },
   "targets": {
-    "test2222-e2458": {
+    "listening-7680f": {
       "hosting": {
         "listeningpractice": [
-          "listeningpractice-test2222"
+          "listening-7680f"
         ]
       }
     }

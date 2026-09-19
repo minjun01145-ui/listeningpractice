@@ -17,7 +17,7 @@ jobs:
       - name: Deploy to Firebase Hosting live channel
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          projectId: test2222-e2458
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_LISTENING_7680F }}
+          projectId: listening-7680f
           target: listeningpractice
           channelId: live

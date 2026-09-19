@@ -25,8 +25,8 @@ firebase deploy
 
 배포가 끝나면:
 
-- 학생용: `https://프로젝트주소.web.app/`
-- 교사용: `https://프로젝트주소.web.app/teacher.html`
+- 학생용: `https://listening-7680f.web.app/`
+- 교사용: `https://listening-7680f.web.app/teacher.html`
 
 마이크는 HTTPS에서만 정상적으로 권한 요청이 되므로 Firebase Hosting 주소에서 시험하는 것을 권장합니다.
 
@@ -154,7 +154,7 @@ gcloud storage buckets update gs://YOUR_BUCKET_NAME --lifecycle-file=lifecycle.j
 Firebase CLI에 로그인하고 프로젝트 권한이 있는 계정으로 다음 명령을 실행하세요.
 
 ```bash
-firebase deploy --only firestore:rules,storage --project test2222-e2458
+firebase deploy --only firestore:rules,storage --project listening-7680f
 ```
 
 ## 13. 실제 기기 점검표
