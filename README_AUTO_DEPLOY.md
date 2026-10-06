@@ -53,3 +53,7 @@ GitHub → Actions → Deploy to Firebase Hosting
 에서 실행 결과를 확인할 수 있습니다.
 
 성공하면 Firebase Hosting live 채널에 자동 반영됩니다.
+
+## 5. 기출 가져오기 함수
+
+자동 배포는 Node 22에서 `functions` 의존성을 설치하고 `past-exam` 코드베이스의 함수를 먼저 배포합니다. 이어서 기존 Hosting 배포를 실행합니다. 기존 Repository Secret을 그대로 사용하되, 배포 서비스 계정에 Functions 배포 권한과 런타임 서비스 계정에 대한 `iam.serviceAccounts.actAs`가 필요합니다. Cloud Translation API 활성화와 실행 서비스 계정의 번역 권한은 README의 **기출 자동 불러오기** 설정을 참고하세요. Firestore/Storage 규칙과 교사용 인증은 변경하지 않습니다.

@@ -194,3 +194,13 @@ tr:last-child td { border-bottom:0; }
   .read-step { font-size:10px; padding:7px 2px; }
   .topbar { align-items:flex-start; }
 }
+/* 기출 가져오기는 기존 카드·입력·미리보기 스타일을 재사용합니다. */
+.import-selectors { align-items: end; }
+.import-selectors .field { flex: 1; min-width: 90px; }
+.import-selectors input { max-width: 180px; }
+.import-editor { border: 0; margin: 16px 0 0; padding: 0; min-width: 0; }
+.import-warnings:empty { display: none; }
+.import-warnings { color: #92400e; padding-left: 24px; }
+.import-raw { max-height: 250px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+#importQuestions { max-height: 480px; overflow: auto; margin: 14px 0; }
+#importSources a { overflow-wrap: anywhere; }

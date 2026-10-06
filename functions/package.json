@@ -1,0 +1,24 @@
+{
+  "name": "listeningpractice-import",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:live": "node scripts/check-live.js",
+    "test:ui": "node scripts/check-ui.cjs"
+  },
+  "dependencies": {
+    "cheerio": "^1.1.0",
+    "fflate": "^0.8.2",
+    "firebase-functions": "^6.4.0",
+    "google-auth-library": "^10.0.0",
+    "pdfjs-dist": "^5.4.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}

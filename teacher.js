@@ -6,6 +6,8 @@ import {
   ref, uploadBytes, getDownloadURL, deleteObject
 } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-storage.js";
 import { getQuestionGroupLabel, getQuestionGroupRanges } from "./question-groups.js?v=20260914-1";
+import { parseQuestions, buildGroups } from "./round-script.js?v=20261006-1";
+import { initPastExamImport } from "./auto-import.js?v=20261006-1";
 
 const $=id=>document.getElementById(id);
 const GRADES=["중1","중2","중3","고1"];
@@ -26,22 +28,6 @@ function groupLabel(round,index){
 }
 function progressGoal(round){return isExamPrepRound(round)?{listen:0,record:5,total:5}:{listen:3,record:3,total:6};}
 
-function parseQuestions(text){
-  const lines=text.replace(/\r/g,"").split("\n"); const out=[]; let current=null;
-  const numberRe=/^\s*(?:문제\s*)?(?:\[(\d{1,3})\]|(\d{1,3})\s*번|(\d{1,3})\s*[.)])\s*$/;
-  const finish=()=>{if(current?.rows.length)out.push({...current,text:current.rows.map(r=>`${r.english}\t${r.korean}`).join("\n")});};
-  for(const line of lines){
-    const m=line.match(numberRe);
-    if(m){finish();current={number:Number(m[1]||m[2]||m[3]),rows:[]};continue;}
-    if(!current||!line.trim())continue;
-    const tab=line.indexOf("\t");
-    if(tab<0)continue;
-    const english=line.slice(0,tab).trim();const korean=line.slice(tab+1).trim();
-    if(english&&korean)current.rows.push({english,korean});
-  }
-  finish();return out;
-}
-function buildGroups(questions){return getQuestionGroupRanges(questions).map((_,index)=>({index,label:getQuestionGroupLabel(questions,index),audioUrl:"",audioPath:"",segmentStart:"",segmentEnd:""}));}
 function parseLooseQuestions(text){
   const lines=text.replace(/\r/g,"").split("\n"),out=[];let current=null;
   const numberRe=/^\s*(?:문제\s*)?(?:\[(\d{1,3})\]|(\d{1,3})\s*번|(\d{1,3})\s*[.)])\s*$/;
@@ -102,6 +88,27 @@ async function saveRound(){
     alert(permissionDenied?"회차 저장 권한이 없습니다. Firestore 보안 규칙이 배포되었는지 확인해 주세요.":`회차 저장에 실패했습니다.\n${error?.message||error}`);
   }finally{button.disabled=false;button.textContent="회차 저장";}
 }
+async function saveImportedRound({draft,title,questions,groups}){
+  // Keep the same document ID and audio path across retries, including ambiguous network failures.
+  draft.documentRef ||= doc(collection(db,"rounds"));
+  const roundRef=draft.documentRef;
+  if(draft.audioBlob&&!draft.uploadedAudio){
+    const path=`teacher-audio/${roundRef.id}/whole-import.mp3`,audioRef=ref(storage,path);
+    try{
+      await uploadBytes(audioRef,draft.audioBlob,{contentType:draft.audioBlob.type||"audio/mpeg"});
+      draft.uploadedAudio={url:await getDownloadURL(audioRef),path};
+    }catch{throw new Error("전체 음원 Storage 업로드에 실패했습니다. 파일과 대본은 미리보기에 남아 있습니다.");}
+  }
+  try{
+    await setDoc(roundRef,{title,grade:draft.grade,isExamPrep:false,questions,groups,visible:false,
+      wholeAudioUrl:draft.uploadedAudio?.url||"",wholeAudioPath:draft.uploadedAudio?.path||"",questionTimings:[],
+      createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
+  }catch(error){throw new Error(error?.code==="permission-denied"?"Firestore 저장 권한이 없습니다. 기존 보안 규칙의 배포 상태를 확인하세요.":"Firestore 회차 저장에 실패했습니다. 다시 시도하면 같은 회차 ID로 저장합니다.");}
+  state.expandedRoundIds.add(roundRef.id);
+  // A list refresh failure must not report an already committed round as a failed save.
+  try{await loadRounds();}catch{ $("roundList").insertAdjacentHTML("afterbegin",'<div class="notice">회차는 저장되었습니다. 목록 새로고침을 눌러 다시 확인하세요.</div>'); }
+  return {id:roundRef.id};
+}
 async function loadRounds(){const snap=await getDocs(collection(db,"rounds"));state.rounds=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));renderRounds();}
 function renderRounds(){
   $("roundList").innerHTML=state.rounds.map(r=>{
@@ -137,7 +144,7 @@ async function saveRoundTitle(roundId){
   await updateDoc(doc(db,"rounds",roundId),{title,grade,updatedAt:serverTimestamp()});alert("회차 이름과 학년을 저장했습니다.");await loadRounds();
 }
 async function saveRegularRoundScript(roundId){
-  const round=state.rounds.find(item=>item.id===roundId),input=document.querySelector(`[data-round-script="${CSS.escape(roundId)}"]`),questions=parseQuestions(input?.value||"");if(!questions.length)return alert("번호 줄과 Tab으로 구분된 영어/한글 문장을 인식하지 못했습니다.");
+  const round=state.rounds.find(item=>item.id===roundId),input=document.querySelector(`[data-round-script="${CSS.escape(roundId)}"]`),questions=parseQuestions(input?.value||"",{allowEnglishOnly:true});if(!questions.length)return alert("번호 줄과 영어 대본을 인식하지 못했습니다.");
   const oldGroups=round?.groups||[],groups=buildGroups(questions).map((group,index)=>({...group,audioUrl:oldGroups[index]?.audioUrl||"",audioPath:oldGroups[index]?.audioPath||"",segmentStart:oldGroups[index]?.segmentStart??"",segmentEnd:oldGroups[index]?.segmentEnd??""})),numbers=new Set(questions.map(question=>Number(question.number))),questionTimings=(round?.questionTimings||[]).filter(timing=>numbers.has(Number(timing.number)));
   await updateDoc(doc(db,"rounds",roundId),{questions,groups,questionTimings,updatedAt:serverTimestamp()});alert("대본과 문제 묶음을 다시 저장했습니다.");await loadRounds();
 }
@@ -214,4 +221,5 @@ $("previousWeek").addEventListener("click",()=>shiftManagementWeek(-7));
 $("nextWeek").addEventListener("click",()=>shiftManagementWeek(7));
 $("managementWeek").value=koreaDateKey();
 
+initPastExamImport({save:saveImportedRound});
 loadStudents();loadRounds();

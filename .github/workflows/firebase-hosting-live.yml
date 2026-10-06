@@ -14,6 +14,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Install import function dependencies
+        run: npm ci --prefix functions
+
+      - name: Authenticate for Functions deployment
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_LISTENING_7680F }}
+
+      - name: Deploy import function before Hosting rewrite
+        run: npx --yes firebase-tools deploy --only functions:past-exam --project listening-7680f --non-interactive
+
       - name: Deploy to Firebase Hosting live channel
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:

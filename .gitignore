@@ -1,1 +1,7 @@
 .firebase/
+node_modules/
+.tmp/
+functions/.env*
+!functions/.env.example
+*-debug.log
+gha-creds-*.json

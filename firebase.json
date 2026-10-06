@@ -4,6 +4,9 @@
       "target": "listeningpractice",
       "public": ".",
       "cleanUrls": true,
+      "rewrites": [
+        { "source": "/api/past-exam/**", "function": { "functionId": "pastExamImport", "region": "asia-northeast3" } }
+      ],
       "headers": [
         {
           "source": "/teacher",
@@ -28,10 +31,15 @@
         "**/.firebase/**",
         "**/node_modules/**",
         ".github/**",
+        "gha-creds-*.json",
         "README*",
         "lifecycle.json",
         "firestore.rules",
-        "storage.rules"
+        "storage.rules",
+        "functions/**",
+        "tests/**",
+        "scripts/**",
+        "package*.json"
       ]
     }
   ],
@@ -40,5 +48,15 @@
   },
   "storage": {
     "rules": "storage.rules"
+  },
+  "functions": {
+    "source": "functions",
+    "codebase": "past-exam",
+    "ignore": ["node_modules", "test", "scripts", "*.log", ".env.example"],
+    "predeploy": ["npm --prefix \"$RESOURCE_DIR\" test"]
+  },
+  "emulators": {
+    "functions": { "port": 5001 },
+    "hosting": { "port": 5000 }
   }
 }
