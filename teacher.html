@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>영어 듣기 교사용 관리</title>
-  <link rel="stylesheet" href="./styles.css?v=20261007-1" />
+  <link rel="stylesheet" href="./styles.css?v=20261007-2" />
 </head>
 <body>
   <main class="app-shell">
@@ -98,13 +98,7 @@
       <div class="card">
         <div class="section-title"><h2>등록된 회차 / 음원</h2><button id="refreshRounds" class="btn ghost small">새로고침</button></div>
         <p class="help">권장: 1–4, 5–8처럼 묶음별 음원을 직접 올리세요. 또는 전체 음원 하나를 올리고 각 묶음의 시작/끝 초를 입력할 수 있습니다.</p>
-        <div class="round-filters row wrap">
-          <label class="round-filter">연도 <select id="roundYearFilter" class="input"></select></label>
-          <label class="round-filter">학년 <select id="roundGradeFilter" class="input"></select></label>
-          <span id="roundFilterCount" class="help"></span>
-        </div>
-        <div id="roundList" class="round-list-box"></div>
-        <div id="roundEditor"></div>
+        <div id="roundList"></div>
       </div>
     </section>
 
@@ -128,6 +122,6 @@
     </div>
   </div>
 
-  <script type="module" src="./teacher.js?v=20261007-1"></script>
+  <script type="module" src="./teacher.js?v=20261007-2"></script>
 </body>
 </html>
