@@ -87,6 +87,16 @@ a { color: var(--brand); }
 .group-btn:disabled { opacity:.68; }
 .group-btn.done { background: var(--success-soft); color: var(--success); border: 1px solid #86efac; }
 .group-btn.done:disabled { opacity:1; }
+.student-shell .group-btn { display:flex; flex-direction:column; justify-content:center; gap:5px; border:1px solid var(--line); }
+.student-shell .group-btn.not-started { background:#eef2f7; color:var(--muted); }
+.student-shell .group-btn.in-progress { background:var(--warning-soft); color:var(--warning); border-color:var(--warning); }
+.student-shell .group-btn.done { border-color:var(--success); }
+.student-choice-status { font-size:12px; line-height:1.45; font-weight:750; }
+.student-shell .student-set-buttons { grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); }
+.student-shell .student-set-btn[aria-pressed="true"] { outline:2px solid var(--brand); outline-offset:2px; }
+.student-resume-btn { margin-top:14px; }
+.student-listen-resume { margin:10px 0; font-weight:750; }
+.student-listen-percentage { flex-basis:100%; text-align:center; font-size:13px; font-weight:800; }
 
 .progress-strip { position: sticky; top: 8px; z-index: 10; background: rgba(255,255,255,.96); backdrop-filter: blur(8px); }
 .read-steps { display:grid; grid-template-columns: repeat(var(--read-step-count, 6),1fr); gap:7px; margin-top: 12px; }
@@ -157,16 +167,20 @@ tr:last-child td { border-bottom:0; }
 .weekly-status.none { color:var(--danger); }
 .weekly-cell, .weekly-day-head { min-width:58px; text-align:center; vertical-align:middle; }
 .weekly-day-head span { color:var(--muted); font-size:12px; font-weight:600; }
-.round-row-caret, .round-drawer-caret { flex:0 0 auto; width:14px; color:var(--muted); font-size:12px; line-height:1; }
-.round-drawer-head { display:flex; align-items:center; gap:8px; width:100%; text-align:left; padding:9px 10px; margin:0 0 4px; border:0; border-radius:9px; background:transparent; color:inherit; font:inherit; }
-.round-drawer-head:hover { background:var(--brand-soft); }
-.round-drawer-count { color:var(--muted); font-size:13px; font-weight:800; }
-.round-drawer-body { padding-left:16px; }
-.round-row { display:flex; align-items:center; gap:8px; width:100%; text-align:left; padding:9px 12px; margin:0 0 4px; border:1px solid var(--line); border-radius:10px; background:white; color:inherit; font:inherit; }
-.round-row.active { border-color:var(--brand); background:var(--brand-soft); }
-.round-row-main { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.round-row-badges { display:inline-flex; align-items:center; gap:5px; flex:0 1 auto; flex-wrap:wrap; justify-content:flex-end; min-width:0; }
-.round-row .status-pill { flex:0 0 auto; padding:4px 9px; font-size:12px; }
+.round-year-box { border:1px solid var(--line); border-radius:14px; padding:12px 14px; margin:0 0 12px; background:#fff; }
+.round-year-head { font-weight:900; font-size:15px; margin-bottom:10px; }
+.round-grade-row { display:flex; align-items:flex-start; gap:14px; padding:7px 0; }
+.round-grade-row + .round-grade-row { border-top:1px dashed var(--line); }
+.round-grade-label { flex:0 0 72px; padding-top:8px; font-weight:800; font-size:13px; color:var(--muted); }
+.round-grade-chips { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; align-items:center; }
+.round-grade-chips .round-card { flex:1 1 100%; margin:8px 0 4px; }
+.round-chip { display:inline-flex; align-items:center; gap:6px; flex:0 1 auto; max-width:16em; padding:7px 11px; margin:0 6px 6px 0; border:1px solid var(--line); border-radius:999px; background:white; color:inherit; font:inherit; font-weight:800; }
+.round-chip:hover { border-color:var(--brand); background:var(--brand-soft); }
+.round-chip.active { border-color:var(--brand); background:var(--brand-soft); }
+.round-chip-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.round-chip-badge { display:inline-flex; align-items:center; flex:0 0 auto; padding:2px 6px; border-radius:999px; font-size:11px; font-weight:800; background:var(--brand-soft); color:var(--brand); }
+.round-chip-badge.warn { background:var(--warning-soft); color:var(--warning); }
+.round-chip-badge.muted { background:#e5e7eb; color:var(--muted); }
 .round-list-empty { padding:14px 6px; }
 .round-card { border:1px solid var(--line); border-radius:14px; padding:14px; margin:8px 0 12px; }
 .round-summary { margin-bottom:0; padding-bottom:14px; border-bottom:1px solid var(--line); }
@@ -203,11 +217,8 @@ tr:last-child td { border-bottom:0; }
   .group-script-list { gap:14px; }
   .read-step { font-size:10px; padding:7px 2px; }
   .topbar { align-items:flex-start; }
-  .round-drawer-body { padding-left:10px; }
-  .round-row { flex-wrap:wrap; padding:9px 10px; }
-  .round-row-main { flex:1 1 calc(100% - 44px); }
-  .round-row-badges { padding-left:22px; }
-  .round-row .status-pill { margin-left:auto; }
+  .round-grade-row { flex-direction:column; gap:6px; }
+  .round-grade-label { padding-top:0; }
 }
 /* 기출 가져오기는 기존 카드·입력·미리보기 스타일을 재사용합니다. */
 .import-selectors { align-items: end; }

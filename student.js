@@ -1,13 +1,13 @@
 import { db, storage } from "./firebase.js";
-import { collection, doc, getDoc, getDocs, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+import { collection, doc, getDoc, getDocs, query, where, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
 import { ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-storage.js";
 import { getQuestionGroupLabel, getQuestionGroupRanges } from "./question-groups.js?v=20260914-1";
 
 const $ = id => document.getElementById(id);
 const audio = $("practiceAudio");
 const state = {
-  student:null, grade:"", rounds:[], round:null, groupIndex:null, groupQuestions:[], progress:null, sessionIndex:null,
-  hideEnglish:false, hideKorean:false, activePlayedSec:0, lastPlayTick:0,
+  student:null, grade:"", rounds:[], round:null, groupIndex:null, groupQuestions:[], progress:null, sessionIndex:null, progressMap:new Map(), resumeTarget:null,
+  hideEnglish:false, hideKorean:false, activePlayedSec:0, lastPlayTick:0, listenedBuckets:new Set(), lastMediaTime:null, mediaTracked:false, seeking:false, lastResumeSave:0, audioProgressId:"",
   segmentEnded:false, completingListen:false, recording:null, pendingRecording:null,
   recordTimerId:null, testRecording:null, testTimerId:null, testAudioUrl:"", busy:false, startingRecorder:false
 };
@@ -58,8 +58,8 @@ async function createRecorderSession(){
 function stopTracks(session){if(!session)return;session.intentionalTrackStop=true;session.stream?.getTracks().forEach(track=>track.stop());}
 function setBusy(busy){
   state.busy=busy;document.body.classList.toggle("is-busy",busy);$("savingOverlay").classList.toggle("hidden",!busy);
-  for(const id of ["gradeSelect","roundSelect","logoutBtn","recordBtn","retrySaveBtn","deviceTestBtn"])$(id).disabled=busy;
-  document.querySelectorAll("[data-group]").forEach(button=>{button.disabled=busy;});
+  for(const id of ["gradeSelect","logoutBtn","recordBtn","retrySaveBtn","deviceTestBtn","resumePracticeBtn"])$(id).disabled=busy;
+  document.querySelectorAll("[data-group],[data-round]").forEach(button=>{button.disabled=busy;});
 }
 
 async function login(studentNo,name){
@@ -69,61 +69,66 @@ async function login(studentNo,name){
 }
 async function enterApp(){
   $("loginView").classList.add("hidden");$("studentView").classList.remove("hidden");
-  $("studentBadge").textContent=`${state.student.studentNo} ${state.student.name}`;await loadRounds();await loadLatestProgress();
+  $("studentBadge").textContent=`${state.student.studentNo} ${state.student.name}`;await Promise.all([loadRounds(),loadStudentProgress()]);
+  const grade=readLocal(`elistening:lastGrade:${state.student.studentNo}`);if(["중1","중2","중3","고1"].includes(grade))await selectGrade(grade);else{renderRoundOptions();await loadLatestProgress();}
 }
 async function loadRounds(){
   const snap=await getDocs(collection(db,"rounds"));
   state.rounds=snap.docs.map(item=>({id:item.id,...item.data()})).filter(round=>round.visible!==false).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
-  renderRoundOptions();
 }
-function renderRoundOptions(){const rounds=state.rounds.filter(round=>round.grade===state.grade);$("roundSelect").innerHTML=`<option value="">${rounds.length?"세트를 선택하세요":state.grade?"이 학년에 등록된 세트가 없습니다.":"학년을 먼저 선택하세요"}</option>${rounds.map(round=>`<option value="${escapeHtml(round.id)}">${isExamPrepRound(round)?"[시험대비] ":""}${escapeHtml(round.title||"이름 없는 회차")}</option>`).join("")}`;}
+async function loadStudentProgress(){const snap=await getDocs(query(collection(db,"progress"),where("studentNo","==",state.student.studentNo)));state.progressMap=new Map(snap.docs.map(item=>[item.id,{...item.data(),id:item.id}]));}
+function roundItems(round){return isExamPrepRound(round)?Array.from({length:6},(_,sessionIndex)=>({groupIndex:sessionIndex%3,sessionIndex})):groupRanges(round).map((_,groupIndex)=>({groupIndex,sessionIndex:null}));}
+function itemProgress(round,item){return state.progressMap.get(currentProgressId(round,item.groupIndex,item.sessionIndex));}
+function progressStatus(progress,round){const counts=effectiveCounts(progress,round),required=requiredCounts(round,progress);return counts.listen===required.listen&&counts.record===required.record?"done":counts.listen+counts.record>0?"in-progress":"not-started";}
+function groupButtonContent(round,index,sessionIndex,progress){
+  const counts=effectiveCounts(progress,round),status=progressStatus(progress,round),text=isExamPrepRound(round)?`${sessionIndex+1}번 항목 · ${counts.record}/5${status==="done"?" ✓":""}`:status==="done"?"완료 ✓":status==="not-started"?"시작 전":`듣기 ${counts.listen}/3 · 녹음 ${counts.record}/3`;
+  return `<span>${escapeHtml(groupLabel(round,index))}</span><span class="student-choice-status">${text}</span>`;
+}
+function renderRoundOptions(){
+  const rounds=state.rounds.filter(round=>round.grade===state.grade);
+  $("roundButtons").innerHTML=rounds.length?rounds.map(round=>{const items=roundItems(round),done=items.filter(item=>progressStatus(itemProgress(round,item),round)==="done").length,started=items.some(item=>progressStatus(itemProgress(round,item),round)!=="not-started"),status=items.length&&done===items.length?"done":started?"in-progress":"not-started",text=status==="done"?"완료 ✓":started?`진행 중 · ${done}/${items.length}${isExamPrepRound(round)?"항목":"묶음"} 완료`:"시작 전";return `<button type="button" class="btn group-btn student-set-btn ${status}" data-round="${escapeHtml(round.id)}" aria-pressed="${state.round?.id===round.id}"><span>${isExamPrepRound(round)?"[시험대비] ":""}${escapeHtml(round.title||"이름 없는 회차")}</span><span class="student-choice-status">${text}</span></button>`;}).join(""):`<div class="muted">${state.grade?"이 학년에 등록된 세트가 없습니다.":"학년을 먼저 선택하세요"}</div>`;
+  $("roundButtons").querySelectorAll("[data-round]").forEach(button=>{button.disabled=state.busy;button.addEventListener("click",()=>selectRound(button.dataset.round));});
+}
+function resumableLocalProgress(round){
+  if(isExamPrepRound(round))return [];const list=[];
+  for(const item of roundItems(round)){const id=currentProgressId(round,item.groupIndex),progress=state.progressMap.get(id);if(effectiveCounts(progress,round).listen===3)continue;let saved;try{saved=JSON.parse(readLocal(`elistening:resume:${id}`));}catch{continue;}const age=Date.now()-saved?.savedAt;if(!Number.isFinite(saved?.position)||saved.position<=0||!validListenBuckets(saved?.buckets)||!Number.isFinite(age)||age<0||age>=14*86400000)continue;
+    list.push({...progress,id,roundId:round.id,roundTitle:round.title,groupIndex:item.groupIndex,groupLabel:groupLabel(round,item.groupIndex),updatedAt:{seconds:saved.savedAt/1000}});
+  }
+  return list;
+}
 async function loadLatestProgress(){
-  if(!state.grade){$("currentProgressCard").classList.add("hidden");return;}
-  const snap=await getDocs(collection(db,"progress"));
-  const roundIds=new Set(state.rounds.filter(round=>round.grade===state.grade).map(round=>round.id)),list=snap.docs.map(item=>({id:item.id,...item.data()})).filter(progress=>progress.studentNo===state.student.studentNo&&roundIds.has(progress.roundId)).sort((a,b)=>(b.updatedAt?.seconds||0)-(a.updatedAt?.seconds||0));
-  if(!list.length){$("currentProgressCard").classList.add("hidden");return;}
-  const progress=list[0],round=state.rounds.find(item=>item.id===progress.roundId),counts=effectiveCounts(progress,round),required=requiredCounts(round,progress),isExam=isExamPrepRound(round)||Number.isInteger(progress.sessionIndex);
-  $("currentProgressCard").classList.remove("hidden");$("currentProgressStatus").textContent=isExam?`${Number(progress.sessionIndex)+1}/6번 항목`:counts.listen===required.listen&&counts.record===required.record?"완료":`${counts.listen+counts.record}/${required.total}`;
-  $("currentProgressText").innerHTML=`<b>${escapeHtml(round?.title||progress.roundTitle||"회차")}</b> · ${escapeHtml(progress.groupLabel||`묶음 ${Number(progress.groupIndex)+1}`)}${isExam?` · ${Number(progress.sessionIndex)+1}번 항목`:""}<br><span class="muted">${isExam?`시험대비 녹음 ${counts.record}/5`:`음원 ${counts.listen}/3 · 녹음 ${counts.record}/3 · 음원 재생 누적 ${fmtSec(progress.totalListenSec)}`}</span>`;
+  const rounds=state.rounds.filter(round=>!state.grade||round.grade===state.grade),roundIds=new Set(rounds.map(round=>round.id)),list=[...state.progressMap.values(),...rounds.flatMap(resumableLocalProgress)].filter(progress=>roundIds.has(progress.roundId)).sort((a,b)=>(b.updatedAt?.seconds||0)-(a.updatedAt?.seconds||0));
+  state.resumeTarget=null;$("resumePracticeBtn").classList.add("hidden");if(!list.length){$("currentProgressCard").classList.add("hidden");return;}
+  const progress=list[0],round=state.rounds.find(item=>item.id===progress.roundId),counts=effectiveCounts(progress,round),required=requiredCounts(round,progress),isExam=isExamPrepRound(round),items=roundItems(round),latest=items.find(item=>item.groupIndex===progress.groupIndex&&item.sessionIndex===(Number.isInteger(progress.sessionIndex)?progress.sessionIndex:null)),target=latest&&progressStatus(progress,round)!=="done"?latest:items.find(item=>progressStatus(itemProgress(round,item),round)!=="done");
+  $("currentProgressCard").classList.remove("hidden");$("currentProgressStatus").textContent=!target?"회차 완료":isExam?`${Number(progress.sessionIndex)+1}/6번 항목`:counts.listen===required.listen&&counts.record===required.record?"완료":`${counts.listen+counts.record}/${required.total}`;
+  $("currentProgressText").innerHTML=`<b>${escapeHtml(round.title||progress.roundTitle||"회차")}</b> · ${escapeHtml(progress.groupLabel||`묶음 ${Number(progress.groupIndex)+1}`)}${isExam?` · ${Number(progress.sessionIndex)+1}번 항목`:""}<br><span class="muted">${!target?"이 회차를 모두 완료했습니다.":isExam?`시험대비 녹음 ${counts.record}/5`:`음원 ${counts.listen}/3 · 녹음 ${counts.record}/3 · 음원 재생 누적 ${fmtSec(progress.totalListenSec)}`}</span>`;
+  if(target){state.resumeTarget={grade:round.grade,roundId:round.id,...target};$("resumePracticeBtn").classList.remove("hidden");}
+}
+async function resumePractice(){
+  if(isInteractionLocked())return alert("현재 녹음 또는 저장이 끝난 뒤 이어해 주세요.");if(state.pendingRecording)return alert("완료된 녹음의 ‘다시 저장’을 먼저 눌러 주세요.");const target=state.resumeTarget;if(!target)return;
+  await selectGrade(target.grade);$("gradeSelect").value=state.grade;await selectRound(target.roundId);await openGroup(target.groupIndex,target.sessionIndex);
 }
 async function selectGrade(grade){
   if(isInteractionLocked()){$("gradeSelect").value=state.grade;return alert("현재 녹음 또는 저장이 끝난 뒤 학년을 변경해 주세요.");}if(state.pendingRecording){$("gradeSelect").value=state.grade;return alert("완료된 녹음의 ‘다시 저장’을 먼저 눌러 주세요.");}
-  await stopAllMedia();state.grade=["중1","중2","중3","고1"].includes(grade)?grade:"";state.round=null;state.groupIndex=null;state.progress=null;state.sessionIndex=null;renderRoundOptions();$("roundSection").classList.toggle("hidden",!state.grade);$("groupSection").classList.add("hidden");$("practiceSection").classList.add("hidden");$("floatingAudio").classList.add("hidden");await loadLatestProgress();
+  await stopAllMedia();state.grade=["중1","중2","중3","고1"].includes(grade)?grade:"";$("gradeSelect").value=state.grade;writeLocal(`elistening:lastGrade:${state.student.studentNo}`,state.grade||null);state.round=null;state.groupIndex=null;state.progress=null;state.sessionIndex=null;renderRoundOptions();$("roundSection").classList.toggle("hidden",!state.grade);$("groupSection").classList.add("hidden");$("practiceSection").classList.add("hidden");$("floatingAudio").classList.add("hidden");await loadLatestProgress();
 }
-async function loadExamPrepProgress(round){
-  const snap=await getDocs(collection(db,"progress")),sessions=new Map();
-  snap.docs.map(item=>item.data()).filter(progress=>progress.studentNo===state.student.studentNo&&progress.roundId===round.id&&Number.isInteger(progress.sessionIndex)).forEach(progress=>sessions.set(progress.sessionIndex,progress));
-  return sessions;
-}
+function loadExamPrepProgress(round){const sessions=new Map();roundItems(round).forEach(item=>{const progress=itemProgress(round,item);if(progress)sessions.set(item.sessionIndex,progress);});return sessions;}
 async function selectRound(roundId){
-  if(isInteractionLocked()){$("roundSelect").value=state.round?.id||"";return alert("현재 녹음 또는 저장이 끝난 뒤 회차를 변경해 주세요.");}
-  if(state.pendingRecording){$("roundSelect").value=state.round?.id||"";return alert("완료된 녹음의 ‘다시 저장’을 먼저 눌러 주세요. 다시 녹음할 필요는 없습니다.");}
-  await stopAllMedia();state.round=state.rounds.find(round=>round.id===roundId&&round.grade===state.grade)||null;state.groupIndex=null;state.progress=null;state.sessionIndex=null;
-  $("practiceSection").classList.add("hidden");$("floatingAudio").classList.add("hidden");
-  if(!state.round){$("groupSection").classList.add("hidden");return;}
-  if(isExamPrepRound(state.round)){
-    $("groupHeading").textContent="3. 시험대비 항목 선택하기";
-    const sessions=await loadExamPrepProgress(state.round),buttons=[];
-    for(let sessionIndex=0;sessionIndex<6;sessionIndex+=1){const groupIndex=sessionIndex%3,counts=effectiveCounts(sessions.get(sessionIndex),state.round),done=counts.record===5;buttons.push(`<button type="button" class="btn group-btn ${done?"done":""}" data-group="${groupIndex}" data-session="${sessionIndex}">${escapeHtml(groupLabel(state.round,groupIndex))}<br><span class="help">${sessionIndex+1}번 항목 · ${counts.record}/5${done?" ✓":""}</span></button>`);}
-    $("groupButtons").innerHTML=buttons.join("");$("groupScheduleNotice").classList.remove("hidden");$("groupScheduleNotice").textContent="1 → 2 → 3 → 1 → 2 → 3 순서로 표시됩니다. 원하는 항목을 자유롭게 선택하세요.";$("groupSection").classList.remove("hidden");
-    document.querySelectorAll("[data-session]").forEach(button=>button.addEventListener("click",()=>openGroup(Number(button.dataset.group),Number(button.dataset.session))));return;
-  }
-  $("groupHeading").textContent="3. 문제 묶음 선택하기";$("groupScheduleNotice").classList.add("hidden");const count=groupRanges(state.round).length,buttons=[],required=requiredCounts(state.round);
-  for(let index=0;index<count;index+=1){
-    const snap=await getDoc(doc(db,"progress",currentProgressId(state.round,index))),counts=effectiveCounts(snap.exists()?snap.data():null,state.round),done=counts.listen===required.listen&&counts.record===required.record;
-    buttons.push(`<button type="button" class="btn group-btn ${done?"done":""}" data-group="${index}">${escapeHtml(groupLabel(state.round,index))}${done?" ✓":""}</button>`);
-  }
-  $("groupButtons").innerHTML=buttons.join("");$("groupSection").classList.remove("hidden");
-  document.querySelectorAll("[data-group]").forEach(button=>button.addEventListener("click",()=>openGroup(Number(button.dataset.group))));
+  if(isInteractionLocked())return alert("현재 녹음 또는 저장이 끝난 뒤 회차를 변경해 주세요.");
+  if(state.pendingRecording)return alert("완료된 녹음의 ‘다시 저장’을 먼저 눌러 주세요. 다시 녹음할 필요는 없습니다.");
+  await stopAllMedia();state.round=state.rounds.find(round=>round.id===roundId&&round.grade===state.grade)||null;state.groupIndex=null;state.progress=null;state.sessionIndex=null;renderRoundOptions();
+  $("practiceSection").classList.add("hidden");$("floatingAudio").classList.add("hidden");if(!state.round){$("groupSection").classList.add("hidden");return;}
+  const isExam=isExamPrepRound(state.round),sessions=isExam?loadExamPrepProgress(state.round):null;
+  $("groupHeading").textContent=isExam?"3. 시험대비 항목 선택하기":"3. 문제 묶음 선택하기";$("groupScheduleNotice").classList.toggle("hidden",!isExam);if(isExam)$("groupScheduleNotice").textContent="1 → 2 → 3 → 1 → 2 → 3 순서로 표시됩니다. 원하는 항목을 자유롭게 선택하세요.";
+  $("groupButtons").innerHTML=roundItems(state.round).map(item=>{const progress=isExam?sessions.get(item.sessionIndex):itemProgress(state.round,item);return `<button type="button" class="btn group-btn ${progressStatus(progress,state.round)}" data-group="${item.groupIndex}"${isExam?` data-session="${item.sessionIndex}"`:""}>${groupButtonContent(state.round,item.groupIndex,item.sessionIndex,progress)}</button>`;}).join("");$("groupSection").classList.remove("hidden");
+  $("groupButtons").querySelectorAll("[data-group]").forEach(button=>button.addEventListener("click",()=>openGroup(Number(button.dataset.group),button.hasAttribute("data-session")?Number(button.dataset.session):null)));
 }
 async function openGroup(index,sessionIndex=null){
   if(isInteractionLocked())return alert("현재 녹음 또는 저장이 끝난 뒤 다른 묶음을 선택해 주세요.");
   if(state.pendingRecording)return alert("완료된 녹음의 ‘다시 저장’을 먼저 눌러 주세요. 다시 녹음할 필요는 없습니다.");
-  const range=groupRanges(state.round)[index];
-  if(!range)return;
+  const range=groupRanges(state.round)[index];if(!range)return;
   await stopAllMedia();state.groupIndex=index;state.sessionIndex=Number.isInteger(sessionIndex)?sessionIndex:null;state.groupQuestions=(state.round.questions||[]).slice(range.start,range.end);
-  const snap=await getDoc(doc(db,"progress",currentProgressId(state.round,index,state.sessionIndex)));
-  state.progress=snap.exists()?snap.data():{studentNo:state.student.studentNo,name:state.student.name,roundId:state.round.id,roundTitle:state.round.title,groupIndex:index,groupLabel:groupLabel(state.round,index),listenCount:0,recordCount:0,totalListenSec:0,totalRecordSec:0,...(Number.isInteger(state.sessionIndex)?{sessionIndex:state.sessionIndex}:{})};
+  state.progress={...(state.progressMap.get(currentProgressId(state.round,index,state.sessionIndex))||{studentNo:state.student.studentNo,name:state.student.name,roundId:state.round.id,roundTitle:state.round.title,groupIndex:index,groupLabel:groupLabel(state.round,index),listenCount:0,recordCount:0,totalListenSec:0,totalRecordSec:0,...(Number.isInteger(state.sessionIndex)?{sessionIndex:state.sessionIndex}:{})})};
   $("practiceSection").classList.remove("hidden");$("practiceTitle").textContent=`${state.round.title} · ${groupLabel(state.round,index)}`;
   renderScript();renderProgress();configureAudio();setTimeout(()=>$("practiceSection").scrollIntoView({behavior:"smooth",block:"start"}),50);
 }
@@ -162,20 +167,50 @@ function getSegmentBounds(){
   if(included.length){const first=included[0],last=included[included.length-1],next=timings.find(timing=>Number(timing.start)>Number(last.start)),explicitEnd=hasSegmentValue(last.end)?Number(last.end):null;return {start:Number(first.start)||0,end:explicitEnd??(next?Number(next.start):null),source:"questionTimings"};}
   return {start:0,end:null,source:"whole"};
 }
+function readLocal(key){try{return localStorage.getItem(key);}catch{return null;}}
+function writeLocal(key,value){try{if(value===null)localStorage.removeItem(key);else localStorage.setItem(key,value);}catch{/* 저장소가 차단되어도 연습은 계속 */}}
+function listenResumeKey(){return state.audioProgressId?`elistening:resume:${state.audioProgressId}`:"";}
+function segmentLength(){const {start,end}=getSegmentBounds(),finish=end??audio.duration;return Number.isFinite(finish)&&finish>start?finish-start:null;}
+function listenedMediaSec(){const length=segmentLength(),covered=state.listenedBuckets.size*.5,seconds=covered+(!Number.isFinite(audio.duration)&&!state.mediaTracked?state.activePlayedSec*audio.playbackRate:0);return length?Math.min(length,seconds):seconds;}
+function validListenBuckets(buckets,length=null){return Array.isArray(buckets)&&buckets.every(bucket=>Number.isSafeInteger(bucket)&&bucket>=0&&(!length||bucket*.5<length));}
+function renderListenPercentage(){const length=segmentLength();$("listenPercentage").textContent=length?`이번 듣기 ${Math.min(100,Math.floor(listenedMediaSec()/length*100))}%`:"이번 듣기 —";}
+function clearListenResume(){const key=listenResumeKey();if(key)writeLocal(key,null);$("listenResumePanel").classList.add("hidden");}
+function saveListenResume(){
+  if(!state.audioProgressId||!state.progress||mode()!=="listen"||state.completingListen||state.segmentEnded)return;
+  const {start,end}=getSegmentBounds(),finish=end??audio.duration,position=audio.currentTime;if(!Number.isFinite(position)||position<=start||(Number.isFinite(finish)&&position>=finish))return;
+  writeLocal(listenResumeKey(),JSON.stringify({position,buckets:[...state.listenedBuckets],savedAt:Date.now(),...(!Number.isFinite(audio.duration)&&!state.mediaTracked?{fallbackPlayedSec:state.activePlayedSec}:{})}));state.lastResumeSave=Date.now();
+}
+function restoreListenResume(){
+  const key=listenResumeKey(),raw=key&&readLocal(key);if(!raw||mode()!=="listen")return;let saved;try{saved=JSON.parse(raw);}catch{clearListenResume();return;}
+  const {start,end}=getSegmentBounds(),finish=end??audio.duration,age=Date.now()-saved?.savedAt,length=segmentLength();
+  if(!Number.isFinite(saved?.position)||!validListenBuckets(saved?.buckets,length)||(saved.fallbackPlayedSec!==undefined&&(!Number.isFinite(saved.fallbackPlayedSec)||saved.fallbackPlayedSec<0))||!Number.isFinite(age)||age<0||age>=14*86400000||saved.position<=start||(Number.isFinite(finish)&&saved.position>=finish)){clearListenResume();return;}
+  state.listenedBuckets=new Set(saved.buckets);state.mediaTracked=state.listenedBuckets.size>0;state.activePlayedSec=!Number.isFinite(audio.duration)?saved.fallbackPlayedSec||0:0;seekAudio(saved.position);$("listenResumeText").textContent=`이어서 듣기: ${fmtClock(saved.position)}부터`;$("listenResumePanel").classList.remove("hidden");renderListenPercentage();
+}
+function seekAudio(position){state.lastMediaTime=null;state.seeking=true;audio.currentTime=position;}
+function restartListen(){
+  clearListenResume();state.listenedBuckets.clear();state.mediaTracked=false;state.activePlayedSec=0;state.lastPlayTick=audio.paused?0:performance.now();state.segmentEnded=false;state.lastResumeSave=Date.now();seekAudio(getSegmentBounds().start);renderListenPercentage();
+}
+function trackListenedTime(){
+  if(!state.audioProgressId||mode()!=="listen"||audio.paused||audio.seeking||state.seeking)return;
+  const {start,end}=getSegmentBounds(),finish=end??audio.duration,current=Math.max(start,Number.isFinite(finish)?Math.min(finish,audio.currentTime):audio.currentTime),delta=state.lastMediaTime===null?0:current-state.lastMediaTime;
+  if(delta>0&&delta<=Math.max(1.5,1.5*audio.playbackRate)){for(let bucket=Math.max(0,Math.floor((state.lastMediaTime-start)/.5)),last=Math.ceil((current-start)/.5);bucket<last;bucket+=1)state.listenedBuckets.add(bucket);state.mediaTracked=true;}
+  state.lastMediaTime=current;renderListenPercentage();
+}
+function cacheCurrentProgress(){const id=currentProgressId(state.round,state.groupIndex,state.sessionIndex);state.progress.updatedAt={seconds:Date.now()/1000};state.progressMap.set(id,{...state.progress,id});renderRoundOptions();updateCurrentGroupButton();}
 function configureAudio(){
-  audio.pause();audio.removeAttribute("src");audio.load();state.activePlayedSec=0;state.lastPlayTick=0;state.segmentEnded=false;
+  state.audioProgressId="";audio.onloadedmetadata=null;audio.pause();audio.removeAttribute("src");audio.load();state.activePlayedSec=0;state.lastPlayTick=0;state.listenedBuckets.clear();state.lastMediaTime=null;state.mediaTracked=false;state.seeking=false;state.segmentEnded=false;state.lastResumeSave=Date.now();$("listenMessage").textContent="";$("listenMessage").classList.add("hidden");$("listenResumePanel").classList.add("hidden");renderListenPercentage();
   if(isExamPrepRound(state.round)){$("noAudioNotice").classList.add("hidden");$("floatingAudio").classList.add("hidden");return;}
   const group=state.round?.groups?.[state.groupIndex]||{},url=group.audioUrl||state.round?.wholeAudioUrl;
   if(!url){$("noAudioNotice").classList.remove("hidden");$("floatingAudio").classList.add("hidden");return;}
-  $("noAudioNotice").classList.add("hidden");audio.src=url;audio.playbackRate=Number($("speedSelect").value||1);
-  audio.onloadedmetadata=()=>{const {start,end}=getSegmentBounds();audio.currentTime=Math.min(start,Math.max(0,(audio.duration||start)-0.05));if(end&&end>audio.duration+0.25)console.warn("설정된 묶음 종료 시간이 음원 길이보다 깁니다.");};
+  $("noAudioNotice").classList.add("hidden");audio.src=url;audio.playbackRate=Number($("speedSelect").value||1);state.audioProgressId=currentProgressId(state.round,state.groupIndex,state.sessionIndex);
+  audio.onloadedmetadata=()=>{const {start,end}=getSegmentBounds();seekAudio(Math.min(start,Math.max(0,(audio.duration||start)-0.05)));restoreListenResume();renderListenPercentage();if(end&&end>audio.duration+0.25)console.warn("설정된 묶음 종료 시간이 음원 길이보다 깁니다.");};
   if(mode()==="listen")$("floatingAudio").classList.remove("hidden");
 }
-function updatePlayedTime(){if(!audio.paused&&state.lastPlayTick){const now=performance.now();state.activePlayedSec+=Math.max(0,(now-state.lastPlayTick)/1000);state.lastPlayTick=now;}}
+function updatePlayedTime(){if(state.lastPlayTick){const now=performance.now();state.activePlayedSec+=Math.max(0,(now-state.lastPlayTick)/1000);state.lastPlayTick=audio.paused?0:now;}}
 async function toggleAudio(){
   if(mode()!=="listen"||!audio.src||state.completingListen)return;const {start,end}=getSegmentBounds();
-  if(audio.paused){if(state.segmentEnded||(end&&audio.currentTime>=end-.15)||(!end&&audio.ended)){audio.currentTime=start;state.segmentEnded=false;state.activePlayedSec=0;}try{await audio.play();$("playPause").textContent="일시중지";}catch{$("playPause").textContent="재생";}}
-  else{updatePlayedTime();audio.pause();$("playPause").textContent="재생";}
+  if(audio.paused){if(state.segmentEnded||(end&&audio.currentTime>=end-.15)||(!end&&audio.ended))restartListen();$("listenMessage").classList.add("hidden");try{await audio.play();$("playPause").textContent="일시중지";}catch{$("playPause").textContent="재생";}}
+  else{trackListenedTime();updatePlayedTime();audio.pause();saveListenResume();$("playPause").textContent="재생";}
 }
 function learningSnapshot(readNo){
   const range=groupRanges(state.round)[state.groupIndex];
@@ -184,8 +219,9 @@ function learningSnapshot(readNo){
   return {studentNo:state.student.studentNo,studentName:state.student.name,roundId:state.round.id,roundTitle:state.round.title,groupIndex:state.groupIndex,groupLabel:groupLabel(state.round,state.groupIndex),questionStart:Number(first),questionEnd:Number(last),questionRange:isExam?groupLabel(state.round,state.groupIndex):`${first}-${last}번`,readNo,requiredRecordCount:required.record,startedAtMs:Date.now(),...(isExam?{sessionIndex:state.sessionIndex}:{})};
 }
 async function completeListen(){
-  if(mode()!=="listen"||state.completingListen||state.segmentEnded)return;state.completingListen=true;updatePlayedTime();audio.pause();$("playPause").textContent="재생";
-  const duration=Math.max(0,state.activePlayedSec);state.activePlayedSec=0;state.lastPlayTick=0;state.segmentEnded=true;
+  if(mode()!=="listen"||state.completingListen||state.segmentEnded)return;state.completingListen=true;trackListenedTime();updatePlayedTime();audio.pause();$("playPause").textContent="재생";
+  const duration=Math.max(0,state.activePlayedSec),length=segmentLength(),listened=listenedMediaSec(),percentage=length?Math.min(100,Math.floor(listened/length*100)):100;clearListenResume();state.lastPlayTick=0;state.segmentEnded=true;
+  if(length&&listened<length*.9){restartListen();$("listenMessage").textContent=`끝까지 듣지 않아 이번 듣기는 횟수에 들어가지 않았습니다. (들은 부분 ${percentage}%)`;$("listenMessage").classList.remove("hidden");state.completingListen=false;return;}
   const snapshot=learningSnapshot(currentReadNo()),attemptId=`listen-${uniqueId()}`;
   try{
     const result=await runTransaction(db,async transaction=>{
@@ -194,18 +230,18 @@ async function completeListen(){
       const current=progressSnap.exists()?progressSnap.data():{},listenCount=Math.min(3,(Number(current.listenCount)||0)+1),totalListenSec=(Number(current.totalListenSec)||0)+Math.round(duration),recordCount=Number(current.recordCount)||0,totalRecordSec=Number(current.totalRecordSec)||0;
       transaction.set(progressRef,{studentNo:snapshot.studentNo,name:snapshot.studentName,roundId:snapshot.roundId,roundTitle:snapshot.roundTitle,groupIndex:snapshot.groupIndex,groupLabel:snapshot.groupLabel,listenCount,recordCount,totalListenSec,totalRecordSec,updatedAt:serverTimestamp()},{merge:true});
       transaction.set(logRef,{studentNo:snapshot.studentNo,name:snapshot.studentName,roundId:snapshot.roundId,roundTitle:snapshot.roundTitle,groupIndex:snapshot.groupIndex,groupLabel:snapshot.groupLabel,questionStart:snapshot.questionStart,questionEnd:snapshot.questionEnd,questionRange:snapshot.questionRange,type:"listen",durationSec:Math.round(duration),readNo:snapshot.readNo,activityId:attemptId,createdAt:serverTimestamp()});
-      return {listenCount,totalListenSec};
+      return {listenCount,totalListenSec,recordCount,totalRecordSec};
     });
     if(result){
-      state.progress.listenCount=result.listenCount;state.progress.totalListenSec=result.totalListenSec;renderProgress();
+      Object.assign(state.progress,result);cacheCurrentProgress();renderProgress();
       try{await loadLatestProgress();}catch(error){console.warn("듣기 저장 후 최신 진행 상황을 불러오지 못했습니다.",error);}
     }
-    if(mode()==="listen"){audio.currentTime=getSegmentBounds().start;state.segmentEnded=false;}
-  }catch(error){console.error("듣기 기록 저장 실패",error);state.segmentEnded=false;alert("듣기는 끝났지만 진행 상황을 저장하지 못했습니다. 인터넷 연결을 확인한 뒤 음원을 다시 재생해 주세요.");}
+    if(mode()==="listen")restartListen();else{state.activePlayedSec=0;state.listenedBuckets.clear();state.lastMediaTime=null;}
+  }catch(error){console.error("듣기 기록 저장 실패",error);restartListen();$("listenMessage").textContent="듣기는 끝났지만 진행 상황을 저장하지 못했습니다. 인터넷 연결을 확인한 뒤 음원을 다시 재생해 주세요.";$("listenMessage").classList.remove("hidden");}
   finally{state.completingListen=false;}
 }
 
-function minimumRecordingSec(){const {start,end}=getSegmentBounds(),groupDuration=end&&end>start?end-start:Number.isFinite(audio.duration)?audio.duration-start:0;return groupDuration>0?Math.min(45,Math.max(12,Math.round(groupDuration*.4))):15;}
+function minimumRecordingSec(){const length=isExamPrepRound(state.round)?null:segmentLength();return length?Math.min(60,Math.max(15,length*.5)):15;}
 async function startRecording(){
   if(mode()!=="record"||state.busy||state.recording||state.startingRecorder)return;if(state.pendingRecording)return alert("완료된 녹음의 ‘다시 저장’을 눌러 주세요. 다시 녹음할 필요는 없습니다.");if(state.testRecording)return alert("휴대폰 녹음 테스트를 먼저 종료해 주세요.");
   state.startingRecorder=true;$("recordBtn").disabled=true;$("recordBtn").textContent="마이크 준비 중";
@@ -216,6 +252,7 @@ async function startRecording(){
     session.stream.getAudioTracks().forEach(track=>track.addEventListener("ended",()=>{if(!session.intentionalTrackStop)failActiveRecording(session,"마이크 연결이 중간에 끊겼습니다. 진행 상황은 올라가지 않았습니다. 마이크 상태를 확인한 뒤 다시 시도해 주세요.");}));
     session.startedAtPerf=performance.now();session.recorder.start(1000);$("recordBtn").textContent="정지";$("recordBtn").classList.add("recording");$("recordStatus").textContent=`${session.snapshot.questionRange} 전체를 순서대로 읽고 정지하세요.`;
     state.recordTimerId=setInterval(()=>$("recordTimer").textContent=fmtClock((performance.now()-session.startedAtPerf)/1000),250);
+    if(document.hidden)failActiveRecording(session,"녹음 중 화면을 벗어나 녹음이 중단되었습니다. 진행 상황은 올라가지 않았습니다. 다시 녹음해 주세요.");
   }catch(error){console.error("녹음 시작 실패",error);if(session)stopTracks(session);resetRecordUi("녹음 버튼을 누르면 시작합니다.");alert(error?.name==="UnsupportedError"?"이 브라우저에서는 웹 녹음을 지원하지 않습니다. Safari 또는 Chrome을 최신 버전으로 업데이트해 주세요.":explainMicrophoneError(error));}
   finally{state.startingRecorder=false;if(state.recording)$("recordBtn").disabled=false;}
 }
@@ -244,15 +281,15 @@ async function uploadPendingRecording(){
       const current=progressSnap.exists()?progressSnap.data():{},recordCount=Math.min(snapshot.requiredRecordCount||3,(Number(current.recordCount)||0)+1),totalRecordSec=(Number(current.totalRecordSec)||0)+Math.round(pending.duration),listenCount=Number(current.listenCount)||0,totalListenSec=Number(current.totalListenSec)||0;
       transaction.set(logRef,{studentNo:snapshot.studentNo,name:snapshot.studentName,roundId:snapshot.roundId,roundTitle:snapshot.roundTitle,groupIndex:snapshot.groupIndex,groupLabel:snapshot.groupLabel,questionStart:snapshot.questionStart,questionEnd:snapshot.questionEnd,questionRange:snapshot.questionRange,type:"record",durationSec:Math.round(pending.duration),readNo:snapshot.readNo,recordingUrl,recordingPath:path,mimeType:pending.mimeType,activityId:pending.submissionId,recordingStartedAtMs:snapshot.startedAtMs,...(Number.isInteger(snapshot.sessionIndex)?{sessionIndex:snapshot.sessionIndex}:{}),createdAt:serverTimestamp()});
       transaction.set(progressRef,{studentNo:snapshot.studentNo,name:snapshot.studentName,roundId:snapshot.roundId,roundTitle:snapshot.roundTitle,groupIndex:snapshot.groupIndex,groupLabel:snapshot.groupLabel,listenCount,recordCount,totalListenSec,totalRecordSec,...(Number.isInteger(snapshot.sessionIndex)?{sessionIndex:snapshot.sessionIndex}:{}),updatedAt:serverTimestamp()},{merge:true});
-      return {duplicate:false,progress:{recordCount,totalRecordSec}};
+      return {duplicate:false,progress:{recordCount,totalRecordSec,listenCount,totalListenSec}};
     });
-    if(state.round?.id===snapshot.roundId&&state.groupIndex===snapshot.groupIndex){state.progress.recordCount=Number(result.progress.recordCount)||state.progress.recordCount||0;state.progress.totalRecordSec=Number(result.progress.totalRecordSec)||state.progress.totalRecordSec||0;renderProgress();updateCurrentGroupButton();}
+    if(state.round?.id===snapshot.roundId&&state.groupIndex===snapshot.groupIndex&&state.sessionIndex===(Number.isInteger(snapshot.sessionIndex)?snapshot.sessionIndex:null)){Object.assign(state.progress,result.progress);cacheCurrentProgress();renderProgress();}
     state.pendingRecording=null;resetRecordUi(result.duplicate?"이미 저장된 녹음입니다. 진도는 한 번만 반영되었습니다.":"녹음 저장이 완료되었습니다.");
     try{await loadLatestProgress();}catch(error){console.warn("녹음 저장 후 최신 진행 상황을 불러오지 못했습니다.",error);}
   }catch(error){console.error("녹음 저장 실패",error);$("recordStatus").textContent="녹음은 완료되었습니다. 다시 녹음하지 말고 ‘다시 저장’을 눌러 주세요.";$("retrySavePanel").classList.remove("hidden");$("recordBtn").textContent="녹음 완료";}
   finally{setBusy(false);if(state.pendingRecording)$("recordBtn").disabled=true;}
 }
-function updateCurrentGroupButton(){const selector=isExamPrepRound(state.round)?`[data-session="${state.sessionIndex}"]`:`[data-group="${state.groupIndex}"]`,button=document.querySelector(selector);if(!button)return;const counts=effectiveCounts(state.progress),required=requiredCounts(),done=counts.listen===required.listen&&counts.record===required.record;button.classList.toggle("done",done);if(isExamPrepRound(state.round)){button.innerHTML=`${escapeHtml(groupLabel(state.round,state.groupIndex))}<br><span class="help">${state.sessionIndex+1}번 항목 · ${counts.record}/5${done?" ✓":""}</span>`;return;}button.textContent=`${groupLabel(state.round,state.groupIndex)}${done?" ✓":""}`;}
+function updateCurrentGroupButton(){const selector=isExamPrepRound(state.round)?`[data-session="${state.sessionIndex}"]`:`[data-group="${state.groupIndex}"]`,button=$("groupButtons").querySelector(selector);if(!button)return;const status=progressStatus(state.progress,state.round);for(const name of ["not-started","in-progress","done"])button.classList.toggle(name,name===status);button.innerHTML=groupButtonContent(state.round,state.groupIndex,state.sessionIndex,state.progress);}
 function resetRecordUi(message){$("recordBtn").disabled=false;$("recordBtn").textContent="녹음";$("recordBtn").classList.remove("recording");$("recordTimer").textContent="00:00";$("recordStatus").textContent=message;$("retrySavePanel").classList.add("hidden");}
 
 async function toggleDeviceTest(){
@@ -272,20 +309,23 @@ function finishDeviceTest(session){
   if(state.testAudioUrl)URL.revokeObjectURL(state.testAudioUrl);state.testAudioUrl=URL.createObjectURL(blob);$("deviceTestAudio").src=state.testAudioUrl;$("deviceTestAudio").classList.remove("hidden");$("deviceTestStatus").textContent="이 휴대폰에서 녹음 기능을 정상적으로 사용할 수 있습니다. 아래 재생 버튼으로 목소리를 확인하세요.";
 }
 async function stopAllMedia(){
-  if(!audio.paused){updatePlayedTime();audio.pause();}$("playPause").textContent="재생";
+  trackListenedTime();updatePlayedTime();saveListenResume();state.audioProgressId="";if(!audio.paused)audio.pause();$("playPause").textContent="재생";
   if(state.testRecording){const session=state.testRecording;session.failed=true;try{if(session.recorder.state!=="inactive")session.recorder.stop();}catch{stopTracks(session);}}
 }
 
 $("loginForm").addEventListener("submit",async event=>{event.preventDefault();$("loginError").classList.add("hidden");try{await login($("studentNo").value.trim(),$("studentName").value.trim());}catch(error){$("loginError").textContent=error.message;$("loginError").classList.remove("hidden");}});
 $("logoutBtn").addEventListener("click",async()=>{if(isInteractionLocked())return alert("녹음을 저장하고 있습니다. 저장이 끝난 뒤 나가 주세요.");if(state.pendingRecording)return alert("완료된 녹음의 ‘다시 저장’을 먼저 눌러 주세요.");await stopAllMedia();sessionStorage.removeItem("elisteningStudent");location.reload();});
 $("gradeSelect").addEventListener("change",event=>selectGrade(event.target.value));
-$("roundSelect").addEventListener("change",event=>selectRound(event.target.value));
+$("resumePracticeBtn").addEventListener("click",resumePractice);$("restartListenBtn").addEventListener("click",()=>{if(isInteractionLocked()||state.pendingRecording||mode()!=="listen")return;restartListen();});
 $("toggleEnglish").addEventListener("click",()=>{state.hideEnglish=!state.hideEnglish;renderScript();});$("toggleKorean").addEventListener("click",()=>{state.hideKorean=!state.hideKorean;renderScript();});
-$("playPause").addEventListener("click",toggleAudio);$("back3").addEventListener("click",()=>{const {start}=getSegmentBounds();audio.currentTime=Math.max(start,audio.currentTime-3);});
-$("forward3").addEventListener("click",()=>{const {end}=getSegmentBounds(),maximum=end??(Number.isFinite(audio.duration)?audio.duration:audio.currentTime+3);audio.currentTime=Math.max(0,Math.min(maximum,audio.currentTime+3));});
+$("playPause").addEventListener("click",toggleAudio);$("back3").addEventListener("click",()=>{if(isInteractionLocked()||mode()!=="listen")return;const {start}=getSegmentBounds(),position=Math.max(start,audio.currentTime-3);if(position===start)restartListen();else seekAudio(position);});
+$("forward3").addEventListener("click",()=>{if(isInteractionLocked()||mode()!=="listen")return;const {end}=getSegmentBounds(),maximum=end??(Number.isFinite(audio.duration)?audio.duration:audio.currentTime+3);seekAudio(Math.max(0,Math.min(maximum,audio.currentTime+3)));});
 $("speedSelect").addEventListener("change",event=>{audio.playbackRate=Number(event.target.value);});$("recordBtn").addEventListener("click",()=>state.recording?stopRecording():startRecording());$("retrySaveBtn").addEventListener("click",uploadPendingRecording);$("deviceTestBtn").addEventListener("click",toggleDeviceTest);
-audio.addEventListener("play",()=>{state.lastPlayTick=performance.now();});audio.addEventListener("pause",()=>{updatePlayedTime();state.lastPlayTick=0;});audio.addEventListener("timeupdate",()=>{const {end}=getSegmentBounds();if(end&&audio.currentTime>=end-.08&&!state.segmentEnded)completeListen();});audio.addEventListener("ended",()=>{if(!state.segmentEnded)completeListen();});
-document.addEventListener("visibilitychange",()=>{if(document.hidden&&!audio.paused){updatePlayedTime();audio.pause();$("playPause").textContent="재생";}});
+audio.addEventListener("play",()=>{state.lastPlayTick=performance.now();state.lastMediaTime=audio.currentTime;});audio.addEventListener("pause",()=>{updatePlayedTime();state.lastPlayTick=0;saveListenResume();});
+audio.addEventListener("seeking",()=>{state.seeking=true;state.lastMediaTime=null;});audio.addEventListener("seeked",()=>{state.seeking=false;state.lastMediaTime=audio.currentTime;renderListenPercentage();});
+audio.addEventListener("timeupdate",()=>{trackListenedTime();updatePlayedTime();if(!audio.paused&&Date.now()-state.lastResumeSave>=5000)saveListenResume();const {end}=getSegmentBounds();if(end&&audio.currentTime>=end-.08&&!state.segmentEnded)completeListen();});audio.addEventListener("ended",()=>{if(!state.segmentEnded)completeListen();});
+function leavePracticePage(){trackListenedTime();updatePlayedTime();saveListenResume();if(!audio.paused)audio.pause();$("playPause").textContent="재생";const session=state.recording;if(session&&!session.manualStop&&session.recorder?.state==="recording")failActiveRecording(session,"녹음 중 화면을 벗어나 녹음이 중단되었습니다. 진행 상황은 올라가지 않았습니다. 다시 녹음해 주세요.");}
+document.addEventListener("visibilitychange",()=>{if(document.hidden)leavePracticePage();});window.addEventListener("pagehide",leavePracticePage);
 window.addEventListener("beforeunload",event=>{if(state.busy||state.pendingRecording||state.recording){event.preventDefault();event.returnValue="";}});
 window.addEventListener("unload",()=>{stopTracks(state.recording);stopTracks(state.testRecording);if(state.testAudioUrl)URL.revokeObjectURL(state.testAudioUrl);});
 

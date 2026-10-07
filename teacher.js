@@ -11,7 +11,7 @@ import { initPastExamImport } from "./auto-import.js?v=20261006-1";
 
 const $=id=>document.getElementById(id);
 const GRADES=["중1","중2","중3","고1"];
-const state={students:[],rounds:[],parsedQuestions:[],revealRoundId:null,openYears:new Set(),openGrades:new Set(),expandedRoundIds:new Set(),roundTreeInit:false,managementStudentNos:new Set(),progressView:"all",progressData:null};
+const state={students:[],rounds:[],parsedQuestions:[],expandedRoundId:null,managementStudentNos:new Set(),progressView:"all",progressData:null};
 function escapeHtml(s=""){return String(s).replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));}
 function fmtSec(sec=0){sec=Math.max(0,Math.round(Number(sec)||0));return `${Math.floor(sec/60)}분 ${sec%60}초`;}
 function fmtDate(ts){if(!ts)return "-"; const d=ts.toDate?ts.toDate():new Date(ts);return d.toLocaleString("ko-KR",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"});}
@@ -81,7 +81,7 @@ async function saveRound(){
   const button=$("saveRoundBtn");button.disabled=true;button.textContent="저장 중…";
   try{
     const refDoc=await addDoc(collection(db,"rounds"),{title,grade,isExamPrep,questions,groups,visible:true,wholeAudioUrl:"",wholeAudioPath:"",createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
-    $("roundTitle").value="";$("roundGrade").value="";$("scriptInput").value="";$("isExamPrep").checked=false;for(let index=1;index<=3;index+=1){$("prepTitle"+index).value="";$("prepScript"+index).value="";}$("regularScriptField").classList.remove("hidden");$("examPrepFields").classList.add("hidden");state.parsedQuestions=[];showPreview();alert(`회차를 저장했습니다. (${refDoc.id})`);state.revealRoundId=refDoc.id;await loadRounds();
+    $("roundTitle").value="";$("roundGrade").value="";$("scriptInput").value="";$("isExamPrep").checked=false;for(let index=1;index<=3;index+=1){$("prepTitle"+index).value="";$("prepScript"+index).value="";}$("regularScriptField").classList.remove("hidden");$("examPrepFields").classList.add("hidden");state.parsedQuestions=[];showPreview();alert(`회차를 저장했습니다. (${refDoc.id})`);state.expandedRoundId=refDoc.id;await loadRounds();
   }catch(error){
     console.error("회차 저장 실패",error);
     const permissionDenied=error?.code==="permission-denied";
@@ -104,7 +104,7 @@ async function saveImportedRound({draft,title,questions,groups}){
       wholeAudioUrl:draft.uploadedAudio?.url||"",wholeAudioPath:draft.uploadedAudio?.path||"",questionTimings:[],
       createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
   }catch(error){throw new Error(error?.code==="permission-denied"?"Firestore 저장 권한이 없습니다. 기존 보안 규칙의 배포 상태를 확인하세요.":"Firestore 회차 저장에 실패했습니다. 다시 시도하면 같은 회차 ID로 저장합니다.");}
-  state.revealRoundId=roundRef.id;
+  state.expandedRoundId=roundRef.id;
   // A list refresh failure must not report an already committed round as a failed save.
   try{await loadRounds();}catch{ $("roundList").insertAdjacentHTML("afterbegin",'<div class="notice">회차는 저장되었습니다. 목록 새로고침을 눌러 다시 확인하세요.</div>'); }
   return {id:roundRef.id};
@@ -115,7 +115,6 @@ const NO_ROUND_VALUE="none";
 function roundYear(round){const match=String(round?.title||"").match(/(?<!\d)(20\d{2})(?!\d)/);return match?match[1]:round?.createdAt?koreaDateKey(round.createdAt).slice(0,4):"";}
 function roundGradeKey(round){return GRADES.includes(round?.grade)?round.grade:NO_ROUND_VALUE;}
 function compareRoundsForList(a,b){const rank=round=>{const index=GRADES.indexOf(round.grade);return index<0?GRADES.length:index;};return (roundYear(b)||"0").localeCompare(roundYear(a)||"0")||rank(a)-rank(b)||String(a.title||"").localeCompare(String(b.title||""),"ko",{numeric:true});}
-function gradeKey(year,grade){return `${year}|${grade}`;}
 function roundTree(){
   const tree=new Map();
   for(const round of state.rounds){const year=roundYear(round)||NO_ROUND_VALUE,grade=roundGradeKey(round);if(!tree.has(year))tree.set(year,new Map());const grades=tree.get(year);if(!grades.has(grade))grades.set(grade,[]);grades.get(grade).push(round);}
@@ -125,18 +124,40 @@ function roundTree(){
 }
 function roundBadges(round){
   const badges=[];
-  if(round.questions?.length)badges.push(`<span class="status-pill">📄 대본</span>`);
-  if(isExamPrepRound(round))badges.push(`<span class="status-pill warn">시험대비</span>`);
+  if(round.questions?.length)badges.push(`<span class="round-chip-badge">대본</span>`);
+  if(isExamPrepRound(round))badges.push(`<span class="round-chip-badge warn">시험대비</span>`);
   else{
-    if(round.wholeAudioUrl||(round.groups||[]).some(group=>group.audioUrl))badges.push(`<span class="status-pill">🎵 음원</span>`);
-    if((round.questionTimings||[]).length||(round.groups||[]).some(group=>group.segmentStart!==""&&group.segmentStart!=null&&group.segmentEnd!==""&&group.segmentEnd!=null))badges.push(`<span class="status-pill">⏱ 음원시간</span>`);
+    if(round.wholeAudioUrl||(round.groups||[]).some(group=>group.audioUrl))badges.push(`<span class="round-chip-badge">음원</span>`);
+    if((round.questionTimings||[]).length||(round.groups||[]).some(group=>group.segmentStart!==""&&group.segmentStart!=null&&group.segmentEnd!==""&&group.segmentEnd!=null))badges.push(`<span class="round-chip-badge">음원시간</span>`);
   }
+  if(round.visible===false)badges.push(`<span class="round-chip-badge muted">숨김</span>`);
   return badges.join("");
 }
-function revealPendingRound(){
-  const target=state.rounds.find(round=>round.id===state.revealRoundId);state.revealRoundId=null;if(!target)return;
-  const year=roundYear(target)||NO_ROUND_VALUE,grade=roundGradeKey(target);
-  state.openYears.add(year);state.openGrades.add(gradeKey(year,grade));state.expandedRoundIds.add(target.id);
+function roundChipLabel(round){const title=String(round?.title||"");const match=title.match(/제\s*(\d+)\s*회/)||title.match(/(\d+)\s*회/);return match?`${match[1]}회`:title;}
+function renderRoundRow(r){
+  const expanded=state.expandedRoundId===r.id,label=escapeHtml(roundChipLabel(r));
+  return `<button type="button" class="round-chip${expanded?" active":""}" data-round-chip="${r.id}" aria-expanded="${expanded}" title="${escapeHtml(r.title)}"><span class="round-chip-label">${label}</span>${roundBadges(r)}</button>`;
+}
+function renderRounds(){
+  const {years,tree}=roundTree();
+  $("roundList").innerHTML=years.length?years.map(year=>{
+    const gradesOfYear=tree.get(year);
+    return `<div class="round-year-box"><div class="round-year-head">${year===NO_ROUND_VALUE?"연도 미상":`${year}년`}</div>${[...GRADES,NO_ROUND_VALUE].filter(grade=>gradesOfYear.has(grade)).map(grade=>{
+      const rounds=gradesOfYear.get(grade),card=rounds.find(r=>r.id===state.expandedRoundId);
+      return `<div class="round-grade-row"><span class="round-grade-label">${grade===NO_ROUND_VALUE?"학년 미지정":grade}</span><div class="round-grade-chips">${rounds.map(renderRoundRow).join("")}${card?renderRoundCard(card):""}</div></div>`;
+    }).join("")}</div>`;
+  }).join(""):`<div class="muted round-list-empty">등록된 회차가 없습니다.</div>`;
+  document.querySelectorAll("[data-round-chip]").forEach(b=>b.addEventListener("click",()=>{const id=b.dataset.roundChip;state.expandedRoundId=state.expandedRoundId===id?null:id;renderRounds();}));
+  document.querySelectorAll("[data-save-round-title]").forEach(button=>button.addEventListener("click",()=>saveRoundTitle(button.dataset.saveRoundTitle)));
+  document.querySelectorAll("[data-save-round-script]").forEach(button=>button.addEventListener("click",()=>saveRegularRoundScript(button.dataset.saveRoundScript)));
+  document.querySelectorAll("[data-save-exam-script]").forEach(button=>button.addEventListener("click",()=>saveExamRoundScript(button.dataset.saveExamScript)));
+  document.querySelectorAll("[data-whole-audio]").forEach(el=>el.addEventListener("change",e=>uploadWholeAudio(e,el.dataset.wholeAudio)));
+  document.querySelectorAll("[data-group-audio]").forEach(el=>el.addEventListener("change",e=>{const [rid,i]=el.dataset.groupAudio.split("|");uploadGroupAudio(e,rid,Number(i));}));
+  document.querySelectorAll("[data-question-timings]").forEach(el=>el.addEventListener("input",()=>{const count=parseQuestionTimings(el.value).length;document.querySelector(`[data-timing-summary="${CSS.escape(el.dataset.questionTimings)}"]`).textContent=count?`${count}개 문항 시간 인식`:"인식된 문항 시간이 없습니다.";}));
+  document.querySelectorAll("[data-save-question-timings]").forEach(b=>b.addEventListener("click",()=>saveQuestionTimings(b.dataset.saveQuestionTimings)));
+  document.querySelectorAll("[data-save-seg]").forEach(b=>b.addEventListener("click",()=>{const [rid,i]=b.dataset.saveSeg.split("|");saveSegment(rid,Number(i));}));
+  document.querySelectorAll("[data-toggle-round]").forEach(b=>b.addEventListener("click",()=>toggleRound(b.dataset.toggleRound)));
+  document.querySelectorAll("[data-delete-round]").forEach(b=>b.addEventListener("click",()=>deleteRound(b.dataset.deleteRound)));
 }
 function renderRoundCard(r){
     const groupEditors=isExamPrepRound(r)?`<div class="notice">시험대비 세트: ${(r.groups||[]).map(group=>escapeHtml(group.label)).join(" → ")} 순서가 한 번 더 반복되어 6개 항목으로 표시되며, 모든 항목은 언제나 열려 있습니다.</div>`:(r.groups||buildGroups(r.questions||[])).map((g,i)=>`<div class="group-editor">
@@ -153,38 +174,9 @@ function renderRoundCard(r){
     const gradeOptions=`<option value="">학년 미지정</option>${GRADES.map(grade=>`<option value="${grade}" ${r.grade===grade?"selected":""}>${grade}</option>`).join("")}`;
     return `<div class="round-card"><div class="section-title round-summary"><div><h3>${escapeHtml(r.title)}</h3><div class="help">${r.grade?escapeHtml(r.grade):'<span class="status-pill warn">학년 미지정</span>'} · ${r.questions?.length||0}문제 · ${groupRanges(r).length}묶음 · ${typeLabel} · 학생에게 ${r.visible===false?'숨김':'표시 중'}</div></div><div class="row wrap"><button class="btn small" data-toggle-round="${r.id}">${r.visible===false?'표시':'숨김'}</button><button class="btn danger small" data-delete-round="${r.id}">회차 삭제</button></div></div><div class="round-details"><div class="round-edit-section"><h4>회차 이름·학년 수정</h4><div class="row wrap"><input class="input grow" value="${escapeHtml(r.title)}" data-round-title="${r.id}" maxlength="100"><select class="input round-grade-select" data-round-grade="${r.id}">${gradeOptions}</select><button class="btn primary" data-save-round-title="${r.id}">이름·학년 저장</button></div></div>${scriptEditor}${audioEditors}${groupEditors}</div></div>`;
 }
-function renderRoundRow(r){
-  const expanded=state.expandedRoundIds.has(r.id);
-  return `<button type="button" class="round-row ${expanded?"active":""}" data-toggle-round-row="${r.id}" aria-expanded="${expanded}"><span class="round-row-caret" aria-hidden="true">${expanded?"▾":"▸"}</span><span class="round-row-main"><b>${escapeHtml(r.title)}</b></span><span class="round-row-badges">${roundBadges(r)}</span><span class="status-pill ${r.visible===false?"warn":"success"}">${r.visible===false?"숨김":"표시 중"}</span></button>${expanded?renderRoundCard(r):""}`;
-}
-function renderRounds(){
-  const {years,tree}=roundTree();
-  if(!state.roundTreeInit&&years.length){state.roundTreeInit=true;const newest=years[0];state.openYears.add(newest);for(const grade of tree.get(newest).keys())state.openGrades.add(gradeKey(newest,grade));}
-  revealPendingRound();
-  $("roundList").innerHTML=years.length?years.map(year=>{
-    const gradesOfYear=tree.get(year),yearOpen=state.openYears.has(year);
-    return `<div class="round-drawer"><button type="button" class="round-drawer-head" data-toggle-year="${year}" aria-expanded="${yearOpen}"><span class="round-drawer-caret" aria-hidden="true">${yearOpen?"▾":"▸"}</span><b>${year===NO_ROUND_VALUE?"연도 미상":`${year}년`}</b><span class="round-drawer-count">(${[...gradesOfYear.values()].reduce((sum,rounds)=>sum+rounds.length,0)})</span></button>${yearOpen?`<div class="round-drawer-body">${[...GRADES,NO_ROUND_VALUE].filter(grade=>gradesOfYear.has(grade)).map(grade=>{
-      const rounds=gradesOfYear.get(grade),key=gradeKey(year,grade),gradeOpen=state.openGrades.has(key);
-      return `<div class="round-grade-drawer"><button type="button" class="round-drawer-head" data-toggle-grade="${key}" aria-expanded="${gradeOpen}"><span class="round-drawer-caret" aria-hidden="true">${gradeOpen?"▾":"▸"}</span><b>${grade===NO_ROUND_VALUE?"학년 미지정":grade}</b><span class="round-drawer-count">(${rounds.length})</span></button>${gradeOpen?`<div class="round-grade-body">${rounds.map(renderRoundRow).join("")}</div>`:""}</div>`;
-    }).join("")}</div>`:""}</div>`;
-  }).join(""):`<div class="muted round-list-empty">등록된 회차가 없습니다.</div>`;
-  document.querySelectorAll("[data-toggle-year]").forEach(b=>b.addEventListener("click",()=>{const key=b.dataset.toggleYear;if(state.openYears.has(key))state.openYears.delete(key);else{state.openYears.add(key);for(const grade of tree.get(key)?.keys()||[])state.openGrades.add(gradeKey(key,grade));}renderRounds();}));
-  document.querySelectorAll("[data-toggle-grade]").forEach(b=>b.addEventListener("click",()=>{const key=b.dataset.toggleGrade;state.openGrades.has(key)?state.openGrades.delete(key):state.openGrades.add(key);renderRounds();}));
-  document.querySelectorAll("[data-toggle-round-row]").forEach(b=>b.addEventListener("click",()=>{const id=b.dataset.toggleRoundRow;state.expandedRoundIds.has(id)?state.expandedRoundIds.delete(id):state.expandedRoundIds.add(id);renderRounds();}));
-  document.querySelectorAll("[data-save-round-title]").forEach(button=>button.addEventListener("click",()=>saveRoundTitle(button.dataset.saveRoundTitle)));
-  document.querySelectorAll("[data-save-round-script]").forEach(button=>button.addEventListener("click",()=>saveRegularRoundScript(button.dataset.saveRoundScript)));
-  document.querySelectorAll("[data-save-exam-script]").forEach(button=>button.addEventListener("click",()=>saveExamRoundScript(button.dataset.saveExamScript)));
-  document.querySelectorAll("[data-whole-audio]").forEach(el=>el.addEventListener("change",e=>uploadWholeAudio(e,el.dataset.wholeAudio)));
-  document.querySelectorAll("[data-group-audio]").forEach(el=>el.addEventListener("change",e=>{const [rid,i]=el.dataset.groupAudio.split("|");uploadGroupAudio(e,rid,Number(i));}));
-  document.querySelectorAll("[data-question-timings]").forEach(el=>el.addEventListener("input",()=>{const count=parseQuestionTimings(el.value).length;document.querySelector(`[data-timing-summary="${CSS.escape(el.dataset.questionTimings)}"]`).textContent=count?`${count}개 문항 시간 인식`:"인식된 문항 시간이 없습니다.";}));
-  document.querySelectorAll("[data-save-question-timings]").forEach(b=>b.addEventListener("click",()=>saveQuestionTimings(b.dataset.saveQuestionTimings)));
-  document.querySelectorAll("[data-save-seg]").forEach(b=>b.addEventListener("click",()=>{const [rid,i]=b.dataset.saveSeg.split("|");saveSegment(rid,Number(i));}));
-  document.querySelectorAll("[data-toggle-round]").forEach(b=>b.addEventListener("click",()=>toggleRound(b.dataset.toggleRound)));
-  document.querySelectorAll("[data-delete-round]").forEach(b=>b.addEventListener("click",()=>deleteRound(b.dataset.deleteRound)));
-}
 async function saveRoundTitle(roundId){
   const input=document.querySelector(`[data-round-title="${CSS.escape(roundId)}"]`),gradeInput=document.querySelector(`[data-round-grade="${CSS.escape(roundId)}"]`),title=input?.value.trim(),grade=gradeInput?.value||"";if(!title)return alert("회차 이름을 입력하세요.");if(!GRADES.includes(grade))return alert("학년을 선택하세요.");
-  await updateDoc(doc(db,"rounds",roundId),{title,grade,updatedAt:serverTimestamp()});alert("회차 이름과 학년을 저장했습니다.");state.revealRoundId=roundId;await loadRounds();
+  await updateDoc(doc(db,"rounds",roundId),{title,grade,updatedAt:serverTimestamp()});alert("회차 이름과 학년을 저장했습니다.");state.expandedRoundId=roundId;await loadRounds();
 }
 async function saveRegularRoundScript(roundId){
   const round=state.rounds.find(item=>item.id===roundId),input=document.querySelector(`[data-round-script="${CSS.escape(roundId)}"]`),questions=parseQuestions(input?.value||"",{allowEnglishOnly:true});if(!questions.length)return alert("번호 줄과 영어 대본을 인식하지 못했습니다.");
@@ -208,7 +200,7 @@ async function saveQuestionTimings(roundId){
 }
 async function saveSegment(roundId,index){const round=state.rounds.find(r=>r.id===roundId);const groups=[...(round.groups||[])];const start=document.querySelector(`[data-seg-start="${CSS.escape(roundId+'|'+index)}"]`).value;const end=document.querySelector(`[data-seg-end="${CSS.escape(roundId+'|'+index)}"]`).value;if(start!==""&&end!==""&&Number(end)<=Number(start))return alert("끝 초는 시작 초보다 커야 합니다.");groups[index]={...groups[index],segmentStart:start===""?"":Number(start),segmentEnd:end===""?"":Number(end)};await updateDoc(doc(db,"rounds",roundId),{groups,updatedAt:serverTimestamp()});alert("구간을 저장했습니다.");}
 async function toggleRound(roundId){const round=state.rounds.find(r=>r.id===roundId);await updateDoc(doc(db,"rounds",roundId),{visible:round.visible===false,updatedAt:serverTimestamp()});await loadRounds();}
-async function deleteRound(roundId){if(!confirm("회차를 삭제할까요? 학생의 기존 진도 기록은 남습니다."))return;await deleteDoc(doc(db,"rounds",roundId));state.expandedRoundIds.delete(roundId);await loadRounds();}
+async function deleteRound(roundId){if(!confirm("회차를 삭제할까요? 학생의 기존 진도 기록은 남습니다."))return;await deleteDoc(doc(db,"rounds",roundId));if(state.expandedRoundId===roundId)state.expandedRoundId=null;await loadRounds();}
 function safeName(name){return name.replace(/[^a-zA-Z0-9가-힣._-]/g,"_").slice(-80);}
 
 async function loadProgress(){
