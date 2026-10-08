@@ -20,6 +20,23 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select deployment targets
+        id: targets
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          targets='functions:past-exam,hosting:listeningpractice'
+          # UI-only releases do not need to redeploy the unchanged server function.
+          if [[ "$EVENT_NAME" == 'push' && "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ && "$BEFORE_SHA" != '0000000000000000000000000000000000000000' ]]; then
+            if git diff --quiet "$BEFORE_SHA" "$GITHUB_SHA" -- functions firebase.json .firebaserc; then
+              targets='hosting:listeningpractice'
+            fi
+          fi
+          echo "targets=$targets" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -39,8 +56,10 @@ jobs:
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_LISTENING_7680F }}
 
-      - name: Deploy import function and Hosting live release
-        run: npx --yes firebase-tools@15.27.0 deploy --only functions:past-exam,hosting:listeningpractice --project listening-7680f --non-interactive
+      - name: Deploy Firebase live release
+        env:
+          DEPLOY_TARGETS: ${{ steps.targets.outputs.targets }}
+        run: npx --yes firebase-tools@15.27.0 deploy --only "$DEPLOY_TARGETS" --project listening-7680f --non-interactive
 
       - name: Verify live teacher page and import API
         run: node .github/scripts/verify-deployment.mjs
