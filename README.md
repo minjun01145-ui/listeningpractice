@@ -216,6 +216,16 @@ firebase deploy --only firestore:rules,storage --project listening-7680f
 
 ## 13. 실제 기기 점검표
 
+### 저장된 음원 자동 타이밍 분석의 CORS 설정
+
+브라우저에서 Storage 음원을 분석용으로 읽으려면 버킷 CORS 설정이 필요합니다. `storage-cors.json`은 이 프로젝트의 두 Hosting 주소에서 GET/HEAD만 허용합니다. Firebase rules 및 다운로드 토큰은 그대로 적용됩니다. Hosting 배포와 별도로 프로젝트 관리 계정에서 한 번 적용하며 버킷을 새로 만들 때 다시 적용하세요.
+
+```bash
+gcloud storage buckets update gs://listening-7680f.firebasestorage.app --cors-file=storage-cors.json
+```
+
+자동 타이밍 분석은 재생용 캐시에 남은 CORS 헤더 없는 응답을 피하기 위해 `cache: "no-store"`로 읽습니다.
+
 ### iPhone Safari
 
 - HTTPS Hosting 주소에서 `🎤 내 휴대폰 녹음 테스트` 권한 허용, 정지, 즉시 재생

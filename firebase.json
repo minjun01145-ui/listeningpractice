@@ -42,6 +42,7 @@
         "lifecycle.json",
         "firestore.rules",
         "storage.rules",
+        "storage-cors.json",
         "functions/**",
         "tests/**",
         "scripts/**",

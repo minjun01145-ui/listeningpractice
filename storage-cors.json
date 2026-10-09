@@ -1,0 +1,11 @@
+[
+  {
+    "origin": [
+      "https://listening-7680f.web.app",
+      "https://listening-7680f.firebaseapp.com"
+    ],
+    "method": ["GET", "HEAD"],
+    "responseHeader": ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"],
+    "maxAgeSeconds": 3600
+  }
+]

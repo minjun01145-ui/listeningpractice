@@ -7,7 +7,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-storage.js";
 import { getQuestionGroupLabel, getQuestionGroupRanges } from "./question-groups.js?v=20260914-1";
 import { parseQuestions, buildGroups } from "./round-script.js?v=20261006-1";
-import { initPastExamImport } from "./auto-import.js?v=20261006-1";
+import { initPastExamImport } from "./auto-import.js?v=20261009-2";
 import { initTimingSettings, analyzeAudioTiming, showTimingResult, validateTimings } from "./audio-timing.js";
 
 const $=id=>document.getElementById(id);
@@ -210,7 +210,16 @@ async function analyzeRoundTimings(roundId,button){
   roundTimingControllers.set(roundId,controller);
   try{
     progress("전체 음원 읽는 중…");let entry=roundTimingBlobs.get(roundId);
-    if(!entry||entry.source!==source){const response=await fetch(source,{signal:AbortSignal.any([controller.signal,AbortSignal.timeout(60000)])});if(!response.ok)throw new Error("전체 음원을 내려받지 못했습니다.");if(Number(response.headers.get('content-length'))>=100*1024*1024)throw new Error("100MB 미만의 음원이 필요합니다.");entry={source,blob:await response.blob()};if(roundTimingBlobs.size>=2)roundTimingBlobs.delete(roundTimingBlobs.keys().next().value);roundTimingBlobs.set(roundId,entry);}
+    if(!entry||entry.source!==source){
+      // Media playback can cache a response without CORS headers. Fetch fresh
+      // bytes for analysis rather than reusing that response or a stale 304.
+      let response;
+      try{response=await fetch(source,{cache:"no-store",signal:AbortSignal.any([controller.signal,AbortSignal.timeout(60000)])});}
+      catch(error){if(controller.signal.aborted)throw error;throw new Error("전체 음원을 읽지 못했습니다. 인터넷 연결을 확인한 뒤 다시 분석하세요. 계속 실패하면 음원 저장소의 브라우저 접근 설정(CORS)을 확인해야 합니다.");}
+      if(!response.ok)throw new Error(`전체 음원을 내려받지 못했습니다. (${response.status})`);
+      if(Number(response.headers.get('content-length'))>=100*1024*1024)throw new Error("100MB 미만의 음원이 필요합니다.");
+      entry={source,blob:await response.blob()};if(roundTimingBlobs.size>=2)roundTimingBlobs.delete(roundTimingBlobs.keys().next().value);roundTimingBlobs.set(roundId,entry);
+    }
     const result=await analyzeAudioTiming({blob:entry.blob,questions:round.questions,status:progress,signal:controller.signal});
     const current=state.rounds.find(r=>r.id===roundId);if(!input.isConnected||current?.wholeAudioUrl!==source||JSON.stringify(current.questions)!==scriptSignature)throw new Error("분석 중 회차·음원·대본이 변경되었습니다. 새 내용을 기준으로 다시 분석하세요.");
     input.value=timingsToText(result.timings);showTimingResult(document.querySelector(`[data-timing-result="${selector}"]`),result,document.querySelector(`[data-timing-audio="${selector}"]`));progress("자동 타이밍 제안 완료. 확인·수정 후 ‘문항 시간 저장’을 누르세요.");

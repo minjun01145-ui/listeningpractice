@@ -12,7 +12,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
   const exam = await prepareExam({ year: 2025, grade: '중1', session: 1 });
   const preview = publicPreview(exam), audio = await downloadExamAudio(exam);
   const root = resolve(__dirname, '../..');
-  const files = new Set(['teacher.html', 'teacher.js', 'index.html', 'student.js', 'styles.css', 'auto-import.js', 'round-script.js', 'question-groups.js', 'audio-timing.js', 'speech-worker.js']);
+  const files = new Set(['teacher.html', 'teacher.js', 'index.html', 'student.js', 'styles.css', 'favicon.svg', 'auto-import.js', 'round-script.js', 'question-groups.js', 'audio-timing.js', 'speech-worker.js']);
   const server = createServer(async (req, res) => {
     const file = new URL(req.url, 'http://localhost').pathname.slice(1);
     if (!files.has(file)) { res.writeHead(404).end(); return; }
@@ -21,6 +21,24 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
+  // A real second origin catches Storage CORS and cached media response issues
+  // that a fulfilled Playwright route on the UI origin cannot reproduce.
+  let allowAudioCors = true;
+  const audioRequests = [];
+  const audioServer = createServer((req, res) => {
+    audioRequests.push({ origin: req.headers.origin, cache: req.headers['cache-control'], range: req.headers.range });
+    if (allowAudioCors && req.headers.origin === origin) res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Content-Type', 'audio/mpeg');
+    const range = req.headers.range?.match(/bytes=(\d+)-(\d*)/);
+    if (!range) return res.end(audio);
+    const start = Number(range[1]), end = range[2] ? Math.min(Number(range[2]), audio.length - 1) : audio.length - 1;
+    res.writeHead(206, { 'Content-Range': `bytes ${start}-${end}/${audio.length}` }).end(audio.subarray(start, end + 1));
+  });
+  await new Promise(resolve => audioServer.listen(0, '127.0.0.1', resolve));
+  const savedAudioUrl = `http://127.0.0.1:${audioServer.address().port}/saved-audio.mp3`;
   const browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'chrome', headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1250, height: 950 } });
@@ -56,7 +74,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
     await page.route('**/firebase-storage.js', route => route.fulfill({ contentType: 'text/javascript', body: `
       export function ref(storage,path){return {path};}
       export async function uploadBytes(ref,blob){const t=window.__testFirebase;if(t.failUpload){t.failUpload=false;throw new Error('test upload failure');}t.uploads.push({path:ref.path,size:blob.size});}
-      export async function getDownloadURL(){return '${origin}/test-audio.mp3';}
+      export async function getDownloadURL(){return '${savedAudioUrl}';}
       export async function deleteObject(){}
     ` }));
     let failPartial = false;
@@ -125,9 +143,16 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
     await page.locator('[data-save-question-timings]').click();
     assert.deepEqual(await page.evaluate(() => Object.values(window.__testFirebase.docs)[0].questionTimings), [{ number: 1, start: 101 }, { number: 2, start: 148 }]);
     await page.evaluate(() => { window.__speechCalls = 0; });
+    allowAudioCors = false;
+    await page.locator('[data-analyze-timings]').click();
+    await page.locator('[data-analysis-status]').filter({ hasText: '브라우저 접근 설정(CORS)' }).waitFor();
+    assert.equal(await page.locator('[data-analyze-timings]').isEnabled(), true);
+    assert.deepEqual(await page.evaluate(() => Object.values(window.__testFirebase.docs)[0].questionTimings), [{ number: 1, start: 101 }, { number: 2, start: 148 }]);
+    allowAudioCors = true;
     await page.locator('[data-analyze-timings]').click();
     await page.locator('[data-timing-result] [data-seek-time]').first().waitFor({ timeout: 60000 });
     assert.equal(await page.locator('[data-timing-result] [data-seek-time]').count(), 20);
+    assert.ok(audioRequests.some(req => req.origin === origin && /no-cache/.test(req.cache || '') && !req.range), 'Analysis must fetch fresh bytes with the page Origin after media playback');
     assert.deepEqual(await page.evaluate(() => Object.values(window.__testFirebase.docs)[0].questionTimings), [{ number: 1, start: 101 }, { number: 2, start: 148 }]);
     // Missing translation/audio still allows edited English to reach a preview.
     failPartial = true;
@@ -171,5 +196,5 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
     assert.equal(await page.evaluate(() => Object.keys(window.__testFirebase.activityLogs).length), 0);
     assert.deepEqual(errors, []);
     console.log(`Browser import passed: real 20-question PDF, ${duration.toFixed(1)}s MP3, mocked speech with real timing alignment, transient API key, no writes before confirmation, upload/write retries without duplicates, saved/manual timings, partial failures, mobile layout and student MP3 playback.`);
-  } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
+  } finally { await browser.close(); await Promise.all([new Promise(resolve => server.close(resolve)), new Promise(resolve => audioServer.close(resolve))]); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

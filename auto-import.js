@@ -151,5 +151,5 @@ export function initPastExamImport({ save }) {
     finally { lock(false); }
   });
   window.addEventListener('beforeunload', event => { if (busy || draft) { event.preventDefault(); event.returnValue = ''; } });
-  window.addEventListener('unload', () => { if (objectUrl) URL.revokeObjectURL(objectUrl); });
+  window.addEventListener('pagehide', event => { if (!event.persisted && objectUrl) URL.revokeObjectURL(objectUrl); });
 }
