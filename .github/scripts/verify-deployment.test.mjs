@@ -11,7 +11,7 @@ async function fixture(t, failure = '') {
     res.setHeader('Content-Type', 'text/javascript');
     if (path === '/teacher') {
       res.setHeader('Content-Type', 'text/html');
-      return res.end(failure === 'old-html' ? '<h1>Old teacher</h1>' : '<div id="pastExamCard"><button id="importExamBtn"></button><select id="importMonth"></select><input id="ollamaApiKey"></div><script type="module" src="./teacher.js?v=1"></script>');
+      return res.end(failure === 'old-html' ? '<h1>Old teacher</h1>' : '<div id="pastExamCard"><button id="importExamBtn"></button><select id="importMonth"></select><input id="ollamaApiKey"><button id="importAiRetranslate"></button></div><script type="module" src="./teacher.js?v=1"></script>');
     }
     if (path === '/teacher.js') return res.end(failure === 'old-js' ? 'export const old=true;' : 'import { initPastExamImport } from "./auto-import.js";');
     if (path === '/auto-import.js') {
@@ -20,10 +20,10 @@ async function fixture(t, failure = '') {
     }
     if (path === '/audio-timing.js') return res.end('export function analyzeAudioTiming(){}');
     if (path === '/speech-worker.js') return res.end(failure === 'old-worker' ? 'old worker' : 'const model="whisper-base_timestamped";');
-    if (['/api/past-exam/ollama','/api/past-exam/timings','/api/past-exam/timing-scan'].includes(path)) {
+    if (['/api/past-exam/ollama','/api/past-exam/timings','/api/past-exam/timing-scan','/api/past-exam/translate-ai'].includes(path)) {
       assert.equal(req.method, 'POST');
       res.setHeader('Content-Type', 'application/json');
-      return res.writeHead(422).end(JSON.stringify({error: failure === 'old-timing-api' ? '지원하지 않는 가져오기 단계입니다.' : path.endsWith('ollama') ? 'API 키를 입력하세요.' : '40분 이하 음원만 분석할 수 있습니다.'}));
+      return res.writeHead(422).end(JSON.stringify({error: failure === 'old-timing-api' ? '지원하지 않는 가져오기 단계입니다.' : path.endsWith('translate-ai') ? '연도(2017년 이후)를 선택하세요.' : path.endsWith('ollama') ? 'API 키를 입력하세요.' : '40분 이하 음원만 분석할 수 있습니다.'}));
     }
     if (path === '/api/past-exam/prepare') {
       let body = '';
@@ -44,7 +44,7 @@ async function fixture(t, failure = '') {
 test('checks live UI, its modules and a no-write API request', async t => {
   const { origin, requests } = await fixture(t);
   await verifyDeployment(origin, 'release-check');
-  assert.deepEqual(requests, ['/teacher', '/teacher.js', '/auto-import.js', '/audio-timing.js', '/speech-worker.js', '/api/past-exam/prepare', '/api/past-exam/ollama', '/api/past-exam/timings', '/api/past-exam/timing-scan']);
+  assert.deepEqual(requests, ['/teacher', '/teacher.js', '/auto-import.js', '/audio-timing.js', '/speech-worker.js', '/api/past-exam/prepare', '/api/past-exam/ollama', '/api/past-exam/timings', '/api/past-exam/timing-scan', '/api/past-exam/translate-ai']);
 });
 
 for (const failure of ['old-html', 'old-js', 'missing-importer', 'missing-api', 'html-api', 'wrong-handler', 'old-worker', 'old-timing-api']) {

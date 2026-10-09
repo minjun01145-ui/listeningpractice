@@ -1,5 +1,5 @@
 import { parseQuestions, buildGroups, importedScriptText } from './round-script.js';
-import { analyzeAudioTiming, showTimingResult, parseTimingText, validateTimings, timingsText } from './audio-timing.js';
+import { analyzeAudioTiming, showTimingResult, parseTimingText, validateTimings, timingsText, timingConnection } from './audio-timing.js';
 
 const $ = id => document.getElementById(id);
 const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -8,7 +8,7 @@ const API = '/api/past-exam';
 async function request(action, selection, binary = false) {
   let response;
   try {
-    response = await fetch(`${API}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(selection), signal: AbortSignal.timeout(65000) });
+    response = await fetch(`${API}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(selection), signal: AbortSignal.timeout(action === 'translate-ai' ? 115000 : 65000) });
   } catch { throw new Error('자동 가져오기 서버에 연결하지 못했거나 시간이 초과되었습니다. 잠시 후 재시도하세요.'); }
   const type = response.headers.get('content-type') || '';
   if (!response.ok || (!binary && !type.includes('application/json'))) {
@@ -63,20 +63,44 @@ export function initPastExamImport({ save }) {
     } catch (error) { draft.warnings.push(`전체 음원 다운로드 실패: ${error.message} 대본은 유지됩니다. 직접 파일을 선택하거나 다시 가져오세요.`); }
     warnings();
   }
-  async function translate() {
-    try {
-      const result = await request('translate', draft.selection);
-      // Preserve teacher edits; only fill empty Korean cells with an exact English match.
+  async function translate(replace = false) {
+    const { apiKey, model } = timingConnection();
+    if (replace && !apiKey) { status('AI 연결 설정에 Ollama API 키를 먼저 입력하세요.'); return; }
+    draft.warnings = draft.warnings.filter(text => !/한국어 자동 번역|번역 요청 실패/.test(text));
+    function merge(result) {
+      // Preserve teacher edits on retry; only match exact official English rows.
       const current = parseQuestions($('importScript').value, { allowEnglishOnly: true });
       for (const question of current) {
         const original = result.questions.find(q => q.number === question.number);
-        for (const row of question.rows) {
-          if (!row.korean) row.korean = original?.rows.find(item => item.english === row.english)?.korean || '';
+        for (const [index, row] of question.rows.entries()) {
+          const match = original?.rows[index]?.english === row.english ? original.rows[index] : original?.rows.find(item => item.english === row.english);
+          if (replace || !row.korean) row.korean = match?.korean || row.korean || '';
         }
       }
       $('importScript').value = importedScriptText(current);
-      draft.warnings = draft.warnings.filter(text => !/한국어 자동 번역|번역 요청 실패/.test(text));
       draft.warnings.push(...result.warnings);
+      $('importTranslationStatus').textContent = `번역: ${result.translationProvider || 'Google Cloud Translation'}${draft.warnings.some(text => /번역 요청 실패/.test(text)) ? ' · 일부 실패, 재시도 가능' : ''}`;
+      preview();
+    }
+    try {
+      const current = parseQuestions($('importScript').value, { allowEnglishOnly: true });
+      if (!apiKey) merge(await request('translate', draft.selection));
+      else {
+        const pending = draft.questions.filter(q => current.some(item => item.number === q.number && item.rows.some(row => (replace || !row.korean) && q.rows.some(original => original.english === row.english))));
+        const batches = []; let batch = [], size = 0;
+        for (const question of pending) {
+          const length = question.rows.reduce((sum, row) => sum + row.english.length, 0);
+          if (batch.length && (batch.length >= 3 || size + length > 4000)) { batches.push(batch); batch = []; size = 0; }
+          batch.push(question.number); size += length;
+        }
+        if (batch.length) batches.push(batch);
+        for (const [index, numbers] of batches.entries()) {
+          $('importTranslationStatus').textContent = `AI 한글 번역 중 · ${index + 1}/${batches.length} · ${model}`;
+          try { merge(await request('translate-ai', { ...draft.selection, apiKey, model, numbers })); }
+          catch (error) { draft.warnings.push(`번역 요청 실패: ${numbers.join('·')}번 · ${error.message} 영어 대본은 유지됩니다.`); }
+        }
+        $('importTranslationStatus').textContent = `번역: Ollama Cloud · ${model}${draft.warnings.some(text => /번역 요청 실패/.test(text)) ? ' · 일부 실패, 재시도 가능' : ' · 완료'}`;
+      }
     } catch (error) { draft.warnings.push(`번역 요청 실패: ${error.message} 영어 대본은 유지됩니다.`); }
     warnings(); preview();
   }
@@ -88,6 +112,7 @@ export function initPastExamImport({ save }) {
     try {
       const result = await request('prepare', selection);
       draft = { ...result, selection, audioBlob: null, documentRef: null, questionTimings: [] }; clearTimings();
+      $('importTranslationStatus').textContent = '';
       $('importTitle').value = result.title; $('importScript').value = importedScriptText(result.questions);
       $('importRawText').textContent = result.rawText;
       $('importSources').innerHTML = result.sources.map(source => {
@@ -102,6 +127,14 @@ export function initPastExamImport({ save }) {
     finally { lock(false); }
   });
   $('importPreviewBtn').addEventListener('click', preview);
+  $('importAiRetranslate').addEventListener('click', async () => {
+    if (!draft || busy) return;
+    if (!timingConnection().apiKey) { status('AI 연결 설정에 Ollama API 키를 먼저 입력하세요.'); return; }
+    if (parseQuestions($('importScript').value, { allowEnglishOnly: true }).some(q => q.rows.some(row => row.korean)) && !confirm('미리보기의 기존 한글 해석을 Ollama AI 번역으로 바꿀까요? 직접 수정한 해석도 바뀌며, 아직 저장된 회차에는 반영되지 않습니다.')) return;
+    lock(true);
+    try { await translate(true); status('AI 번역 작업 완료. 미리보기와 경고를 확인하세요.'); }
+    finally { lock(false); }
+  });
   $('importAnalyzeTiming').addEventListener('click', async () => {
     if (!draft || busy) return;
     const questions = preview();

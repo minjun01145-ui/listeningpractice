@@ -50,7 +50,7 @@
         <p class="help">실제 음원을 음성인식해 대본과 대조합니다. Ollama를 연결하면 DeepSeek가 실제 시간 후보를 추가 대조합니다. DeepSeek 단독으로 음원을 듣고 시간을 추측하지 않습니다.</p>
         <div class="field"><label for="timingSpeechProvider">음성인식 방식</label><select id="timingSpeechProvider"><option value="local">이 기기 Whisper (추가 API 비용 없음)</option><option value="google">Google 음성인식 (API 활성화 필요·사용량 과금)</option></select><p class="help">Whisper는 처음 사용할 때 모델을 다운로드하며, 컴퓨터에서 분석하는 것을 권장합니다. 분석에 몇 분 이상 걸릴 수 있습니다.</p></div>
         <div class="grid-2"><div class="field"><label for="ollamaApiKey">Ollama Cloud API 키</label><input id="ollamaApiKey" type="password" autocomplete="off" placeholder="API 키 입력" /></div><div class="field"><label for="ollamaModel">모델</label><input id="ollamaModel" value="deepseek-v4.1-flash" maxlength="100" /></div></div>
-        <p class="help">키는 이 탭에만 유지하며 저장하지 않습니다. 연결·문항 대조 요청 때 서버를 거쳐 Ollama로 전달합니다.</p>
+          <p class="help">키는 이 탭에만 유지하며 저장하지 않습니다. 연결·문항 대조·기출 한글 번역 요청 때 서버를 거쳐 Ollama로 전달합니다. 키가 입력되어 있으면 가져온 대본도 이 모델로 번역합니다.</p>
         <div class="row wrap"><button id="ollamaConnectBtn" class="btn small">Ollama 연결 확인</button><button id="ollamaForgetBtn" class="btn ghost small">키 지우기</button><span id="ollamaStatus" class="help" role="status" aria-live="polite"></span></div>
         <label class="help"><input id="timingIncludeInstructions" type="checkbox" checked /> 문항 번호 안내가 인식되면 안내 시작 시간 포함 (미인식 문항은 영어 대본 시작 시간으로 제안)</label>
       </details>
@@ -76,7 +76,8 @@
             <div id="importQuestions" class="preview-list"></div>
             <details><summary>가져온 원본 대본 보기</summary><pre id="importRawText" class="import-raw"></pre></details>
             <div class="field"><label for="importAudioFile">전체 음원 (직접 선택하거나 교체 가능)</label><input id="importAudioFile" type="file" accept="audio/*" /><audio id="importAudio" class="audio-mini hidden" controls preload="metadata"></audio></div>
-            <div class="row wrap"><button id="importRetryAudio" class="btn small">전체 음원 다시 가져오기</button><button id="importRetryTranslation" class="btn small">빈 해석 번역 다시 시도</button></div>
+            <div class="row wrap"><button id="importRetryAudio" class="btn small">전체 음원 다시 가져오기</button><button id="importRetryTranslation" class="btn small">빈 해석 번역 다시 시도</button><button id="importAiRetranslate" class="btn small">AI로 전체 해석 다시 번역</button></div>
+            <p id="importTranslationStatus" class="help" role="status" aria-live="polite"></p>
             <div class="timing-editor"><h3>문항 시작 시간</h3><button id="importAnalyzeTiming" class="btn">음원 분석·자동 타이밍</button><p id="importTimingStatus" class="help" role="status" aria-live="polite"></p><div id="importTimingResult"></div><textarea id="importTimings" class="input" placeholder="1번 00:56&#10;2번 01:41"></textarea><p class="help">제안 시간을 눌러 음원을 확인하세요. 시간은 직접 수정할 수 있으며 회차 생성 버튼을 눌러야 저장됩니다.</p></div>
             <p class="help">자동 번역과 문항 구분은 원본과 비교해 확인하세요. 새 회차는 학생에게 숨김으로 저장되며, 확인 후 등록된 회차에서 ‘표시’를 누르세요.</p>
             <div class="row wrap"><button id="importSaveBtn" class="btn primary">확인한 내용으로 회차 생성</button><button id="importClearBtn" class="btn ghost">미리보기 비우기</button></div>
@@ -135,6 +136,6 @@
     </div>
   </div>
 
-  <script type="module" src="./teacher.js?v=20261009-2"></script>
+  <script type="module" src="./teacher.js?v=20261009-3"></script>
 </body>
 </html>

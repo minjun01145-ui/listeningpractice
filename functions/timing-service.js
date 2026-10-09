@@ -12,7 +12,7 @@ export function validateOllama(input) {
   return { apiKey, model };
 }
 
-async function ollamaChat(input, messages, maxTokens = 2000, fetcher = fetch) {
+export async function ollamaChat(input, messages, maxTokens = 2000, fetcher = fetch) {
   const { apiKey, model } = validateOllama(input);
   const response = await fetcher(OLLAMA_URL, {
     method: 'POST', redirect: 'error', signal: AbortSignal.timeout(90000),

@@ -1,6 +1,7 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import { prepareExam, publicPreview, translateExam, downloadExamAudio } from './import-service.js';
 import { checkOllama, recognizeChunk, analyzeTimings, scanTimings } from './timing-service.js';
+import { translateExamWithOllama } from './translation-service.js';
 import { RELEASE_REVISION } from './release-revision.js';
 
 export async function handlePastExam(req, res) {
@@ -8,7 +9,7 @@ export async function handlePastExam(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST 요청만 지원합니다.' });
   if (!req.is('application/json')) return res.status(415).json({ error: 'JSON 형식으로 요청하세요.' });
   const action = req.path.split('/').filter(Boolean).at(-1);
-  if (!['prepare', 'translate', 'audio', 'ollama', 'recognize', 'timings', 'timing-scan', 'release'].includes(action)) return res.status(404).json({ error: '지원하지 않는 가져오기 단계입니다.' });
+  if (!['prepare', 'translate', 'translate-ai', 'audio', 'ollama', 'recognize', 'timings', 'timing-scan', 'release'].includes(action)) return res.status(404).json({ error: '지원하지 않는 가져오기 단계입니다.' });
   try {
     if (action === 'release') return res.json({ revision: RELEASE_REVISION });
     if (action === 'ollama') return res.json(await checkOllama(req.body));
@@ -18,6 +19,7 @@ export async function handlePastExam(req, res) {
     const exam = await prepareExam(req.body);
     if (action === 'prepare') return res.json(publicPreview(exam));
     if (action === 'translate') return res.json(await translateExam(exam));
+    if (action === 'translate-ai') return res.json(await translateExamWithOllama(exam, req.body));
     const bytes = await downloadExamAudio(exam);
     res.set('Content-Type', 'audio/mpeg');
     // Streaming avoids the non-streaming Cloud Functions response size limit.

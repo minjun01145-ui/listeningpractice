@@ -78,6 +78,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
       export async function deleteObject(){}
     ` }));
     let failPartial = false;
+    const aiTranslationCalls = [];
+    let failAiOnce = false;
     await page.route('**/api/past-exam/**', async route => {
       const action = new URL(route.request().url()).pathname.split('/').at(-1);
       if (action === 'prepare') return route.fulfill({ json: preview });
@@ -85,6 +87,13 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
       if (action === 'timings') return route.fulfill({ json: await analyzeTimings(route.request().postDataJSON()) });
       if (action === 'timing-scan') return route.fulfill({ json: scanTimings(route.request().postDataJSON()) });
       if (failPartial) return route.fulfill({ status: 422, json: { error: '검증용 서비스 실패' } });
+      if (action === 'translate-ai') {
+        const input = route.request().postDataJSON(); aiTranslationCalls.push(input);
+        assert.equal(input.apiKey, 'isolated-ui-test-key');
+        assert.ok(input.numbers.length <= 3);
+        if (failAiOnce) { failAiOnce = false; return route.fulfill({ status: 422, json: { error: '검증용 AI 번역 실패' } }); }
+        return route.fulfill({ json: { questions: preview.questions.filter(q => input.numbers.includes(q.number)).map(q => ({ ...q, rows: q.rows.map(row => ({ ...row, korean: '[검증용 해석]' })) })), warnings: [], translationProvider: 'Ollama Cloud · deepseek-v4.1-flash' } });
+      }
       if (action === 'audio') return route.fulfill({ contentType: 'audio/mpeg', body: audio });
       return route.fulfill({ json: { questions: preview.questions.map(q => ({ ...q, rows: q.rows.map(row => ({ ...row, korean: '[검증용 해석]' })) })), warnings: [] } });
     });
@@ -96,16 +105,38 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
     });
     await page.goto(`${origin}/teacher.html`);
     await page.getByRole('button', { name: '회차·대본·음원', exact: true }).click();
+    await page.locator('#timingSettings summary').click();
+    await page.locator('#ollamaApiKey').fill('isolated-ui-test-key');
     await page.locator('#importExamBtn').click();
     await page.locator('#importStatus').filter({ hasText: '미리보기 준비 완료' }).waitFor();
     assert.equal(await page.locator('#importQuestions .preview-q').count(), 20);
     assert.equal(await page.locator('#importSources a').count(), 4);
     assert.ok((await page.locator('#importScript').inputValue()).includes('[검증용 해석]'));
+    assert.deepEqual(aiTranslationCalls.flatMap(call => call.numbers), preview.questions.map(q => q.number));
+    assert.match(await page.locator('#importTranslationStatus').textContent(), /Ollama Cloud.*완료/);
+    const teacherEdit = (await page.locator('#importScript').inputValue()).replace('[검증용 해석]', '교사의 기존 해석').replace(`${preview.questions[1].rows[0].english}\t[검증용 해석]`, `${preview.questions[1].rows[0].english}\t`);
+    await page.locator('#importScript').fill(teacherEdit);
+    failAiOnce = true;
+    await page.locator('#importRetryTranslation').click();
+    await page.locator('#importStatus').filter({ hasText: '재시도 완료' }).waitFor();
+    assert.match(await page.locator('#importWarnings').textContent(), /AI 번역 실패/);
+    assert.equal(await page.locator('#importScript').inputValue(), teacherEdit);
+    await page.locator('#importRetryTranslation').click();
+    await page.locator('#importTranslationStatus').filter({ hasText: '완료' }).waitFor();
+    assert.ok((await page.locator('#importScript').inputValue()).includes('교사의 기존 해석'));
+    assert.deepEqual(aiTranslationCalls.at(-1).numbers, [2]);
+    const callCount = aiTranslationCalls.length;
+    await page.locator('#importAiRetranslate').click(); // Default dialog dismissal preserves edits.
+    assert.equal(aiTranslationCalls.length, callCount);
+    page.removeAllListeners('dialog'); page.on('dialog', dialog => dialog.accept());
+    await page.locator('#importAiRetranslate').click();
+    await page.locator('#importStatus').filter({ hasText: 'AI 번역 작업 완료' }).waitFor();
+    assert.ok(!(await page.locator('#importScript').inputValue()).includes('교사의 기존 해석'));
+    page.removeAllListeners('dialog'); page.on('dialog', dialog => dialog.dismiss());
     await page.waitForFunction(() => Number.isFinite(document.getElementById('importAudio').duration));
     const duration = await page.locator('#importAudio').evaluate(audio => audio.duration);
     assert.ok(duration > 600 && duration < 2400, `Unexpected full-exam MP3 duration: ${duration}`);
     assert.deepEqual(await page.evaluate(() => [Object.keys(window.__testFirebase.docs).length, window.__testFirebase.uploads.length]), [0, 0]);
-    await page.locator('#timingSettings summary').click();
     await page.locator('#ollamaApiKey').fill('isolated-ui-test-key');
     await page.locator('#ollamaConnectBtn').click();
     await page.locator('#ollamaStatus').filter({ hasText: '연결 확인 완료' }).waitFor();

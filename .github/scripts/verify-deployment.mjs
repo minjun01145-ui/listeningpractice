@@ -16,6 +16,7 @@ export async function verifyDeployment(origin, revision = Date.now().toString())
   assert.match(html, /id="importExamBtn"/, 'Import button is missing');
   assert.match(html, /id="importMonth"/, 'High school mock-exam selector is missing');
   assert.match(html, /id="ollamaApiKey"/, 'Ollama connection settings are missing');
+  assert.match(html, /id="importAiRetranslate"/, 'AI script translation is missing');
   const modulePath = html.match(/<script\b[^>]*\bsrc="([^"]*teacher\.js[^\"]*)"/i)?.[1];
   assert.ok(modulePath, 'Teacher module is missing');
 
@@ -43,7 +44,7 @@ export async function verifyDeployment(origin, revision = Date.now().toString())
   assert.match(api.headers.get('content-type') || '', /application\/json/);
   const result = await api.json();
   assert.match(result.error || '', /2017/, 'Import API did not run selector validation');
-  for (const [action, marker] of [['ollama', /API 키/], ['timings', /40분/], ['timing-scan', /40분/]]) {
+  for (const [action, marker] of [['ollama', /API 키/], ['timings', /40분/], ['timing-scan', /40분/], ['translate-ai', /2017/]]) {
     const check = await request(`/api/past-exam/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     assert.equal(check.status, 422, `Timing API ${action} is unavailable`);
     assert.match((await check.json()).error || '', marker, `Timing API ${action} has stale code`);
