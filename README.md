@@ -156,7 +156,7 @@ firebase deploy --only functions:past-exam,hosting:listeningpractice --project l
 
 번역은 Cloud Translation 사용량에 따라 과금되며 API 할당량을 적용할 수 있습니다. 함수는 최대 2개 인스턴스, 인스턴스당 동시 요청 1개, 최대 30개 기출의 30분 메모리 캐시를 사용합니다. 캐시는 영구 보관이 아니므로 인스턴스 재시작 시 다시 수집·번역할 수 있습니다. 교사용 인증·Firebase 규칙은 변경하지 않았습니다.
 
-GitHub 자동 배포도 Functions를 먼저 배포한 뒤 Hosting을 배포합니다. 기존 배포용 서비스 계정에 Functions 배포 권한과 런타임 서비스 계정의 `iam.serviceAccounts.actAs` 권한이 추가로 필요합니다. 기존 Hosting 전용 권한만으로는 새 함수 배포가 실패할 수 있습니다. 최초 CLI 배포 시 필요한 Cloud Build/Artifact Registry/Cloud Run API 활성화도 완료하세요.
+GitHub 자동 배포도 Functions를 먼저 배포한 뒤 서버가 해당 커밋을 실행하는지 확인하고 Hosting을 배포합니다. 서버 빌드나 버전 검증이 실패하면 화면 배포를 중단합니다. Firebase CLI가 서버 반영 후 이미지 정리 정책 미설정만을 오류로 반환하는 경우에는 실제 서버 커밋 검증을 거쳐 이어갑니다. Artifact Registry 이미지 삭제 정책은 변경하지 않습니다. 기존 배포용 서비스 계정에 Functions 배포 권한과 런타임 서비스 계정의 `iam.serviceAccounts.actAs` 권한이 추가로 필요합니다. 기존 Hosting 전용 권한만으로는 새 함수 배포가 실패할 수 있습니다. 최초 CLI 배포 시 필요한 Cloud Build/Artifact Registry/Cloud Run API 활성화도 완료하세요.
 
 ### 실패 시 수동 처리·검증
 

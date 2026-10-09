@@ -49,7 +49,7 @@ jobs:
         run: npm ci --prefix functions
 
       - name: Test deployment verification
-        run: node --test .github/scripts/verify-deployment.test.mjs
+        run: node --test .github/scripts/*.test.mjs
 
       - name: Authenticate for Firebase deployment
         uses: google-github-actions/auth@v2
@@ -59,7 +59,7 @@ jobs:
       - name: Deploy Firebase live release
         env:
           DEPLOY_TARGETS: ${{ steps.targets.outputs.targets }}
-        run: npx --yes firebase-tools@15.27.0 deploy --only "$DEPLOY_TARGETS" --project listening-7680f --non-interactive
+        run: node .github/scripts/deploy-live.mjs
 
       - name: Verify live teacher page and import API
         run: node .github/scripts/verify-deployment.mjs
