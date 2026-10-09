@@ -8,6 +8,7 @@ import {
 import { getQuestionGroupLabel, getQuestionGroupRanges } from "./question-groups.js?v=20260914-1";
 import { parseQuestions, buildGroups } from "./round-script.js?v=20261006-1";
 import { initPastExamImport } from "./auto-import.js?v=20261006-1";
+import { initTimingSettings, analyzeAudioTiming, showTimingResult, validateTimings } from "./audio-timing.js";
 
 const $=id=>document.getElementById(id);
 const GRADES=["중1","중2","중3","고1"];
@@ -101,7 +102,7 @@ async function saveImportedRound({draft,title,questions,groups}){
   }
   try{
     await setDoc(roundRef,{title,grade:draft.grade,isExamPrep:false,questions,groups,visible:false,
-      wholeAudioUrl:draft.uploadedAudio?.url||"",wholeAudioPath:draft.uploadedAudio?.path||"",questionTimings:[],
+      wholeAudioUrl:draft.uploadedAudio?.url||"",wholeAudioPath:draft.uploadedAudio?.path||"",questionTimings:draft.questionTimings||[],
       createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
   }catch(error){throw new Error(error?.code==="permission-denied"?"Firestore 저장 권한이 없습니다. 기존 보안 규칙의 배포 상태를 확인하세요.":"Firestore 회차 저장에 실패했습니다. 다시 시도하면 같은 회차 ID로 저장합니다.");}
   state.expandedRoundId=roundRef.id;
@@ -139,6 +140,7 @@ function renderRoundRow(r){
   return `<button type="button" class="round-chip${expanded?" active":""}" data-round-chip="${r.id}" aria-expanded="${expanded}" title="${escapeHtml(r.title)}"><span class="round-chip-label">${label}</span>${roundBadges(r)}</button>`;
 }
 function renderRounds(){
+  for(const controller of roundTimingControllers.values())controller.abort();
   const {years,tree}=roundTree();
   $("roundList").innerHTML=years.length?years.map(year=>{
     const gradesOfYear=tree.get(year);
@@ -155,6 +157,7 @@ function renderRounds(){
   document.querySelectorAll("[data-group-audio]").forEach(el=>el.addEventListener("change",e=>{const [rid,i]=el.dataset.groupAudio.split("|");uploadGroupAudio(e,rid,Number(i));}));
   document.querySelectorAll("[data-question-timings]").forEach(el=>el.addEventListener("input",()=>{const count=parseQuestionTimings(el.value).length;document.querySelector(`[data-timing-summary="${CSS.escape(el.dataset.questionTimings)}"]`).textContent=count?`${count}개 문항 시간 인식`:"인식된 문항 시간이 없습니다.";}));
   document.querySelectorAll("[data-save-question-timings]").forEach(b=>b.addEventListener("click",()=>saveQuestionTimings(b.dataset.saveQuestionTimings)));
+  document.querySelectorAll("[data-analyze-timings]").forEach(b=>b.addEventListener("click",()=>analyzeRoundTimings(b.dataset.analyzeTimings,b)));
   document.querySelectorAll("[data-save-seg]").forEach(b=>b.addEventListener("click",()=>{const [rid,i]=b.dataset.saveSeg.split("|");saveSegment(rid,Number(i));}));
   document.querySelectorAll("[data-toggle-round]").forEach(b=>b.addEventListener("click",()=>toggleRound(b.dataset.toggleRound)));
   document.querySelectorAll("[data-delete-round]").forEach(b=>b.addEventListener("click",()=>deleteRound(b.dataset.deleteRound)));
@@ -169,8 +172,8 @@ function renderRoundCard(r){
     const timingText=timingsToText(r.questionTimings||[]);
     const typeLabel=isExamPrepRound(r)?`<span class="status-pill warn">시험대비</span> · 3덩어리×2회(총 6개 항목) · 항목당 5회 녹음`:`일반 세트 · 문항 시간 ${r.questionTimings?.length||0}개`;
     const scriptEditor=isExamPrepRound(r)?`<div class="round-edit-section"><h4>시험대비 제목·내용 수정</h4><div class="exam-prep-grid">${examPrepSectionsFromRound(r).map((section,index)=>`<div class="exam-prep-editor"><div class="field"><label>${index+1}번 덩어리 제목</label><input class="input" value="${escapeHtml(section.title)}" data-exam-title="${r.id}|${index}"></div><div class="field"><label>${index+1}번 덩어리 내용</label><textarea class="input" data-exam-script="${r.id}|${index}">${escapeHtml(questionsToText(section.questions,true))}</textarea></div></div>`).join("")}</div><button class="btn primary" data-save-exam-script="${r.id}">세 덩어리 저장</button></div>`:`<div class="round-edit-section"><h4>대본 수정</h4><p class="help">번호는 한 줄에, 각 문장은 영어 → Tab 키 → 한글 순서로 입력하세요. 문항 수가 바뀌면 묶음도 다시 나눕니다.</p><textarea class="input round-script-textarea" data-round-script="${r.id}">${escapeHtml(questionsToText(r.questions||[]))}</textarea><button class="btn primary" data-save-round-script="${r.id}">대본 저장</button></div>`;
-    const audioEditors=isExamPrepRound(r)?"":`<div><label class="help">전체 음원 1개 (선택사항)</label><input type="file" accept="audio/*" data-whole-audio="${r.id}">${r.wholeAudioUrl?`<audio class="audio-mini" controls src="${escapeHtml(r.wholeAudioUrl)}"></audio>`:""}</div>
-      <div class="timing-editor"><label><b>문항별 시작 시간 일괄 입력</b></label><p class="help">표 전체를 그대로 붙여넣거나, 각 줄에 <b>1번 01:41</b> 형식으로 입력하세요. 각 문항은 다음 문항 시작 전까지 재생됩니다.</p><textarea class="input" data-question-timings="${r.id}" placeholder="1번 01:41\n2번 02:28">${escapeHtml(timingText)}</textarea><div class="row wrap"><button class="btn primary small" data-save-question-timings="${r.id}">문항 시간 저장</button><span class="help" data-timing-summary="${r.id}">${timingText?`${r.questionTimings.length}개 저장됨`:"저장된 문항 시간이 없습니다."}</span></div></div>`;
+    const audioEditors=isExamPrepRound(r)?"":`<div><label class="help">전체 음원 1개 (선택사항)</label><input type="file" accept="audio/*" data-whole-audio="${r.id}">${r.wholeAudioUrl?`<audio class="audio-mini" controls data-timing-audio="${r.id}" src="${escapeHtml(r.wholeAudioUrl)}"></audio>`:""}</div>
+      <div class="timing-editor"><label><b>문항별 시작 시간 일괄 입력</b></label><p class="help">표 전체를 그대로 붙여넣거나, 각 줄에 <b>1번 01:41</b> 형식으로 입력하세요. 같은 지문을 공유하는 고1 16·17번은 같은 시작 시간을 사용할 수 있습니다.</p><div class="row wrap"><button class="btn small" data-analyze-timings="${r.id}" ${r.wholeAudioUrl?'':'disabled'}>음원 분석·자동 타이밍</button><button class="btn ghost small hidden" data-cancel-timings="${r.id}">분석 중지</button></div><p class="help" role="status" aria-live="polite" data-analysis-status="${r.id}"></p><div data-timing-result="${r.id}"></div><textarea class="input" data-question-timings="${r.id}" placeholder="1번 01:41\n2번 02:28">${escapeHtml(timingText)}</textarea><div class="row wrap"><button class="btn primary small" data-save-question-timings="${r.id}">문항 시간 저장</button><span class="help" data-timing-summary="${r.id}">${timingText?`${r.questionTimings.length}개 저장됨`:"저장된 문항 시간이 없습니다."}</span></div></div>`;
     const gradeOptions=`<option value="">학년 미지정</option>${GRADES.map(grade=>`<option value="${grade}" ${r.grade===grade?"selected":""}>${grade}</option>`).join("")}`;
     return `<div class="round-card"><div class="section-title round-summary"><div><h3>${escapeHtml(r.title)}</h3><div class="help">${r.grade?escapeHtml(r.grade):'<span class="status-pill warn">학년 미지정</span>'} · ${r.questions?.length||0}문제 · ${groupRanges(r).length}묶음 · ${typeLabel} · 학생에게 ${r.visible===false?'숨김':'표시 중'}</div></div><div class="row wrap"><button class="btn small" data-toggle-round="${r.id}">${r.visible===false?'표시':'숨김'}</button><button class="btn danger small" data-delete-round="${r.id}">회차 삭제</button></div></div><div class="round-details"><div class="round-edit-section"><h4>회차 이름·학년 수정</h4><div class="row wrap"><input class="input grow" value="${escapeHtml(r.title)}" data-round-title="${r.id}" maxlength="100"><select class="input round-grade-select" data-round-grade="${r.id}">${gradeOptions}</select><button class="btn primary" data-save-round-title="${r.id}">이름·학년 저장</button></div></div>${scriptEditor}${audioEditors}${groupEditors}</div></div>`;
 }
@@ -193,10 +196,26 @@ async function uploadGroupAudio(e,roundId,index){const file=e.target.files?.[0];
 async function saveQuestionTimings(roundId){
   const input=document.querySelector(`[data-question-timings="${CSS.escape(roundId)}"]`);const timings=parseQuestionTimings(input.value);
   if(!timings.length)return alert("문항 번호와 시간을 인식하지 못했습니다. 예: 1번 01:41");
-  if(timings.some((t,i)=>i>0&&t.start<=timings[i-1].start))return alert("문항 시간은 번호 순서대로 뒤의 문항이 더 늦어야 합니다.");
   const round=state.rounds.find(r=>r.id===roundId);const questionNumbers=new Set((round?.questions||[]).map(q=>Number(q.number)));const matched=timings.filter(t=>questionNumbers.has(t.number));
   if(!matched.length)return alert("이 회차의 문항 번호와 일치하는 시간이 없습니다.");
+  try{validateTimings(matched,round.questions);}catch(error){return alert(error.message);}
   await updateDoc(doc(db,"rounds",roundId),{questionTimings:matched,updatedAt:serverTimestamp()});alert(`${matched.length}개 문항 시간을 저장했습니다.`);await loadRounds();
+}
+const roundTimingBlobs=new Map();
+const roundTimingControllers=new Map();
+async function analyzeRoundTimings(roundId,button){
+  const round=state.rounds.find(r=>r.id===roundId);if(!round?.wholeAudioUrl)return;
+  const selector=CSS.escape(roundId),input=document.querySelector(`[data-question-timings="${selector}"]`),statusNode=document.querySelector(`[data-analysis-status="${selector}"]`),cancel=document.querySelector(`[data-cancel-timings="${selector}"]`),save=document.querySelector(`[data-save-question-timings="${selector}"]`),controller=new AbortController(),source=round.wholeAudioUrl,scriptSignature=JSON.stringify(round.questions);
+  const progress=text=>{statusNode.textContent=text;};button.disabled=true;save.disabled=true;input.disabled=true;cancel.classList.remove("hidden");cancel.onclick=()=>controller.abort();
+  roundTimingControllers.set(roundId,controller);
+  try{
+    progress("전체 음원 읽는 중…");let entry=roundTimingBlobs.get(roundId);
+    if(!entry||entry.source!==source){const response=await fetch(source,{signal:AbortSignal.any([controller.signal,AbortSignal.timeout(60000)])});if(!response.ok)throw new Error("전체 음원을 내려받지 못했습니다.");if(Number(response.headers.get('content-length'))>=100*1024*1024)throw new Error("100MB 미만의 음원이 필요합니다.");entry={source,blob:await response.blob()};if(roundTimingBlobs.size>=2)roundTimingBlobs.delete(roundTimingBlobs.keys().next().value);roundTimingBlobs.set(roundId,entry);}
+    const result=await analyzeAudioTiming({blob:entry.blob,questions:round.questions,status:progress,signal:controller.signal});
+    const current=state.rounds.find(r=>r.id===roundId);if(!input.isConnected||current?.wholeAudioUrl!==source||JSON.stringify(current.questions)!==scriptSignature)throw new Error("분석 중 회차·음원·대본이 변경되었습니다. 새 내용을 기준으로 다시 분석하세요.");
+    input.value=timingsToText(result.timings);showTimingResult(document.querySelector(`[data-timing-result="${selector}"]`),result,document.querySelector(`[data-timing-audio="${selector}"]`));progress("자동 타이밍 제안 완료. 확인·수정 후 ‘문항 시간 저장’을 누르세요.");
+  }catch(error){progress(controller.signal.aborted?"분석을 중지했습니다. 완료 구간은 유지됩니다.":error.message);}
+  finally{roundTimingControllers.delete(roundId);button.disabled=false;save.disabled=false;input.disabled=false;cancel.classList.add("hidden");cancel.onclick=null;}
 }
 async function saveSegment(roundId,index){const round=state.rounds.find(r=>r.id===roundId);const groups=[...(round.groups||[])];const start=document.querySelector(`[data-seg-start="${CSS.escape(roundId+'|'+index)}"]`).value;const end=document.querySelector(`[data-seg-end="${CSS.escape(roundId+'|'+index)}"]`).value;if(start!==""&&end!==""&&Number(end)<=Number(start))return alert("끝 초는 시작 초보다 커야 합니다.");groups[index]={...groups[index],segmentStart:start===""?"":Number(start),segmentEnd:end===""?"":Number(end)};await updateDoc(doc(db,"rounds",roundId),{groups,updatedAt:serverTimestamp()});alert("구간을 저장했습니다.");}
 async function toggleRound(roundId){const round=state.rounds.find(r=>r.id===roundId);await updateDoc(doc(db,"rounds",roundId),{visible:round.visible===false,updatedAt:serverTimestamp()});await loadRounds();}
@@ -256,5 +275,6 @@ $("previousWeek").addEventListener("click",()=>shiftManagementWeek(-7));
 $("nextWeek").addEventListener("click",()=>shiftManagementWeek(7));
 $("managementWeek").value=koreaDateKey();
 
+initTimingSettings();
 initPastExamImport({save:saveImportedRound});
 loadStudents();loadRounds();

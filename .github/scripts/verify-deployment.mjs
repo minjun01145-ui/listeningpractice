@@ -14,6 +14,8 @@ export async function verifyDeployment(origin, revision = Date.now().toString())
   const html = await teacher.text();
   assert.match(html, /id="pastExamCard"/, 'Teacher page still has the old UI');
   assert.match(html, /id="importExamBtn"/, 'Import button is missing');
+  assert.match(html, /id="importMonth"/, 'High school mock-exam selector is missing');
+  assert.match(html, /id="ollamaApiKey"/, 'Ollama connection settings are missing');
   const modulePath = html.match(/<script\b[^>]*\bsrc="([^"]*teacher\.js[^\"]*)"/i)?.[1];
   assert.ok(modulePath, 'Teacher module is missing');
 
@@ -26,6 +28,11 @@ export async function verifyDeployment(origin, revision = Date.now().toString())
   const importer = await request(importPath);
   assert.equal(importer.status, 200, 'Import module is unavailable');
   assert.match(await importer.text(), /\/api\/past-exam/, 'Import API is not connected');
+  for (const [path, marker] of [['/audio-timing.js', /analyzeAudioTiming/], ['/speech-worker.js', /whisper-base_timestamped/]]) {
+    const module = await request(path);
+    assert.equal(module.status, 200, `Timing module ${path} is unavailable`);
+    assert.match(await module.text(), marker, `Timing module ${path} has stale code`);
+  }
 
   // Invalid selectors reach our function but never download, translate, or save data.
   const api = await request('/api/past-exam/prepare', {
@@ -36,6 +43,11 @@ export async function verifyDeployment(origin, revision = Date.now().toString())
   assert.match(api.headers.get('content-type') || '', /application\/json/);
   const result = await api.json();
   assert.match(result.error || '', /2017/, 'Import API did not run selector validation');
+  for (const [action, marker] of [['ollama', /API 키/], ['timings', /40분/], ['timing-scan', /40분/]]) {
+    const check = await request(`/api/past-exam/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    assert.equal(check.status, 422, `Timing API ${action} is unavailable`);
+    assert.match((await check.json()).error || '', marker, `Timing API ${action} has stale code`);
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -175,7 +175,7 @@ tr:last-child td { border-bottom:0; }
 .round-grade-row + .round-grade-row { border-top:1px dashed var(--line); }
 .round-grade-label { flex:0 0 72px; padding-top:8px; font-weight:800; font-size:13px; color:var(--muted); }
 .round-grade-chips { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; align-items:center; }
-.round-grade-chips .round-card { flex:1 1 100%; margin:8px 0 4px; }
+.round-grade-chips .round-card { flex:1 1 100%; min-width:0; margin:8px 0 4px; }
 .round-chip { display:inline-flex; align-items:center; gap:6px; flex:0 1 auto; max-width:16em; padding:7px 11px; margin:0 6px 6px 0; border:1px solid var(--line); border-radius:999px; background:var(--card); color:inherit; font:inherit; font-weight:800; }
 .round-chip:hover { border-color:var(--brand); background:var(--brand-soft); }
 .round-chip.active { border-color:var(--brand); background:var(--brand-soft); }
@@ -194,6 +194,7 @@ tr:last-child td { border-bottom:0; }
 .round-script-textarea { min-height:280px !important; margin-bottom:10px; }
 .timing-editor { border:1px solid var(--line); border-radius:12px; padding:12px; margin-top:12px; background:var(--surface); }
 .timing-editor textarea { min-height:130px; margin:8px 0; font-variant-numeric:tabular-nums; }
+.timing-editor table { min-width:300px; }
 .group-editor { border-top:1px dashed var(--line); padding-top:12px; margin-top:12px; }
 .audio-mini { width:100%; margin-top:8px; }
 .preview-list { max-height:350px; overflow:auto; border:1px solid var(--line); border-radius:12px; padding:8px 12px; background:var(--surface); }
@@ -221,6 +222,11 @@ tr:last-child td { border-bottom:0; }
   .topbar { align-items:flex-start; }
   .round-grade-row { flex-direction:column; gap:6px; }
   .round-grade-label { padding-top:0; }
+  .round-grade-chips { width:100%; }
+  .round-summary, .round-edit-section .row { flex-wrap:wrap; }
+  .round-edit-section .row > .grow { flex-basis:100%; min-width:0; }
+  .round-card input[type="file"] { max-width:100%; }
+  .group-editor .row input { min-width:0; width:0; flex:1; }
 }
 /* 기출 가져오기는 기존 카드·입력·미리보기 스타일을 재사용합니다. */
 .import-selectors { align-items: end; }

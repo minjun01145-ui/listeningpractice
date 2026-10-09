@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>영어 듣기 교사용 관리</title>
-  <link rel="stylesheet" href="./styles.css?v=20261008-pastel" />
+  <link rel="stylesheet" href="./styles.css?v=20261009-1" />
 </head>
 <body>
   <main class="app-shell">
@@ -44,19 +44,30 @@
     </section>
 
     <section id="tab-rounds" class="tab-panel hidden">
+      <details class="card" id="timingSettings">
+        <summary><b>AI 연결·자동 타이밍 설정</b></summary>
+        <p class="help">실제 음원을 음성인식해 대본과 대조합니다. Ollama를 연결하면 DeepSeek가 실제 시간 후보를 추가 대조합니다. DeepSeek 단독으로 음원을 듣고 시간을 추측하지 않습니다.</p>
+        <div class="field"><label for="timingSpeechProvider">음성인식 방식</label><select id="timingSpeechProvider"><option value="local">이 기기 Whisper (추가 API 비용 없음)</option><option value="google">Google 음성인식 (API 활성화 필요·사용량 과금)</option></select><p class="help">Whisper는 처음 사용할 때 모델을 다운로드하며, 컴퓨터에서 분석하는 것을 권장합니다. 분석에 몇 분 이상 걸릴 수 있습니다.</p></div>
+        <div class="grid-2"><div class="field"><label for="ollamaApiKey">Ollama Cloud API 키</label><input id="ollamaApiKey" type="password" autocomplete="off" placeholder="API 키 입력" /></div><div class="field"><label for="ollamaModel">모델</label><input id="ollamaModel" value="deepseek-v4.1-flash" maxlength="100" /></div></div>
+        <p class="help">키는 이 탭에만 유지하며 저장하지 않습니다. 연결·문항 대조 요청 때 서버를 거쳐 Ollama로 전달합니다.</p>
+        <div class="row wrap"><button id="ollamaConnectBtn" class="btn small">Ollama 연결 확인</button><button id="ollamaForgetBtn" class="btn ghost small">키 지우기</button><span id="ollamaStatus" class="help" role="status" aria-live="polite"></span></div>
+        <label class="help"><input id="timingIncludeInstructions" type="checkbox" checked /> 문항 번호 안내가 인식되면 안내 시작 시간 포함 (미인식 문항은 영어 대본 시작 시간으로 제안)</label>
+      </details>
       <div class="card" id="pastExamCard">
         <h2>기출 자동 불러오기</h2>
-        <p class="help">공식 공개 자료의 대본과 전체 음원을 준비합니다. 미리보기를 확인·수정한 뒤 회차를 생성하세요. 문항 시작 시간은 저장 후 직접 입력합니다.</p>
+        <p class="help">중학교 영어듣기평가 또는 고1 모의고사의 공식 대본과 전체 음원을 준비합니다. 자동 타이밍도 미리보기에서 확인·수정한 뒤 저장할 수 있습니다.</p>
         <div class="row wrap import-selectors">
           <div class="field"><label for="importYear">연도</label><input id="importYear" type="number" min="2017" step="1" value="2025" /></div>
-          <div class="field"><label for="importGrade">학년</label><select id="importGrade"><option>중1</option><option>중2</option><option>중3</option></select></div>
-          <div class="field"><label for="importSession">회차</label><select id="importSession"><option value="1">1회</option><option value="2">2회</option></select></div>
+          <div class="field"><label for="importGrade">학년</label><select id="importGrade"><option>중1</option><option>중2</option><option>중3</option><option>고1</option></select></div>
+          <div class="field" id="importSessionField"><label for="importSession">회차</label><select id="importSession"><option value="1">1회</option><option value="2">2회</option></select></div>
+          <div class="field hidden" id="importMonthField"><label for="importMonth">모의고사 시행 월</label><select id="importMonth"><option value="3">3월</option><option value="4">4월</option><option value="6">6월</option><option value="8">8월</option><option value="9">9월</option><option value="10">10월</option><option value="11">11월</option><option value="12">12월</option></select></div>
           <button id="importExamBtn" class="btn primary">기출 자동 불러오기</button>
         </div>
         <p id="importStatus" class="help" role="status" aria-live="polite"></p>
         <ul id="importWarnings" class="import-warnings" aria-live="polite"></ul>
         <div id="importPreview" class="hidden">
           <div id="importSources" class="help"></div>
+          <button id="importCancelTiming" class="btn ghost hidden">분석 중지</button>
           <fieldset id="importEditor" class="import-editor">
             <div class="field"><label for="importTitle">회차 이름</label><input id="importTitle" maxlength="100" /></div>
             <div class="field"><label for="importScript">문항별 영어·한국어 대본 수정</label><textarea id="importScript" class="round-script-textarea" spellcheck="false"></textarea><div class="help">번호는 한 줄에, 각 문장은 영어 → Tab → 한국어 순서입니다. 번역 실패 시 영어만 입력해도 보존합니다.</div></div>
@@ -65,7 +76,8 @@
             <details><summary>가져온 원본 대본 보기</summary><pre id="importRawText" class="import-raw"></pre></details>
             <div class="field"><label for="importAudioFile">전체 음원 (직접 선택하거나 교체 가능)</label><input id="importAudioFile" type="file" accept="audio/*" /><audio id="importAudio" class="audio-mini hidden" controls preload="metadata"></audio></div>
             <div class="row wrap"><button id="importRetryAudio" class="btn small">전체 음원 다시 가져오기</button><button id="importRetryTranslation" class="btn small">빈 해석 번역 다시 시도</button></div>
-            <p class="help">자동 번역과 문항 구분은 원본과 비교해 확인하세요. 시간 입력 전에는 학생에게 숨김으로 저장됩니다.</p>
+            <div class="timing-editor"><h3>문항 시작 시간</h3><button id="importAnalyzeTiming" class="btn">음원 분석·자동 타이밍</button><p id="importTimingStatus" class="help" role="status" aria-live="polite"></p><div id="importTimingResult"></div><textarea id="importTimings" class="input" placeholder="1번 00:56&#10;2번 01:41"></textarea><p class="help">제안 시간을 눌러 음원을 확인하세요. 시간은 직접 수정할 수 있으며 회차 생성 버튼을 눌러야 저장됩니다.</p></div>
+            <p class="help">자동 번역과 문항 구분은 원본과 비교해 확인하세요. 새 회차는 학생에게 숨김으로 저장되며, 확인 후 등록된 회차에서 ‘표시’를 누르세요.</p>
             <div class="row wrap"><button id="importSaveBtn" class="btn primary">확인한 내용으로 회차 생성</button><button id="importClearBtn" class="btn ghost">미리보기 비우기</button></div>
           </fieldset>
         </div>
@@ -122,6 +134,6 @@
     </div>
   </div>
 
-  <script type="module" src="./teacher.js?v=20261008-1"></script>
+  <script type="module" src="./teacher.js?v=20261009-1"></script>
 </body>
 </html>

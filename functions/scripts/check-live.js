@@ -3,10 +3,11 @@ import { download } from '../download.js';
 import { extractPdfText, parseOfficialScript, scriptPdfFromZip } from '../pdf-script.js';
 
 const [year = '2025', grade = '중1', session = '1'] = process.argv.slice(2);
-const exam = await prepareExam({ year: Number(year), grade, session: Number(session) });
+const exam = await prepareExam({ year: Number(year), grade, ...(grade === '고1' ? { month: Number(session) } : { session: Number(session) }) });
 const audio = await downloadExamAudio(exam);
 const preview = publicPreview(exam);
-if (preview.questions.length !== 20) throw new Error(`Expected 20 questions, got ${preview.questions.length}`);
+const expected = grade === '고1' ? 17 : 20;
+if (preview.questions.length !== expected) throw new Error(`Expected ${expected} questions, got ${preview.questions.length}`);
 if (preview.questions.some(q => !q.rows.length)) throw new Error('Empty question');
 console.log(JSON.stringify({ title: preview.title, questionCount: preview.questions.length,
   rowCount: preview.questions.reduce((n, q) => n + q.rows.length, 0),

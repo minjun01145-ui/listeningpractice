@@ -47,15 +47,16 @@ async function collectExam(selection) {
   }
   await consume(found.candidates);
   // If the first provider's PDF format changed, still try the independent provider.
-  if (!questions.length && found.candidates.length === 1 && found.candidates[0].name.startsWith('EBS')) {
+  if (!questions.length && selection.grade !== '고1' && found.candidates.length === 1 && found.candidates[0].name.startsWith('EBS')) {
     try { const fallback = await discover(selection, sourceProviders.slice(1)); await consume(fallback.candidates); }
     catch { warnings.push('교육청 대체 자료에서도 대본을 확인하지 못했습니다.'); }
   }
   if (!questions.length && !audioSource) throw new Error('대본과 전체 음원을 준비하지 못했습니다. 출처 자료를 확인하고 수동 등록을 이용하세요.');
-  if (questions.length && questions.length !== GRADES[selection.grade].expectedCount) warnings.push(`${questions.length}문항을 인식했습니다. 일반적인 20문항과 다르므로 원본과 비교하세요.`);
+  if (questions.length && questions.length !== GRADES[selection.grade].expectedCount) warnings.push(`${questions.length}문항을 인식했습니다. 예상 ${GRADES[selection.grade].expectedCount}문항과 다르므로 원본과 비교하세요.`);
   if (!audioSource) warnings.push('대본은 가져왔지만 전체 음원을 찾지 못했습니다. 미리보기에서 음원 파일을 직접 선택할 수 있습니다.');
   if (!questions.length) warnings.push('전체 음원은 발견했지만 대본 분석에 실패했습니다. 원본을 확인하고 미리보기 대본을 직접 입력하세요.');
-  return { selection, title: `${selection.year}년 ${selection.grade} 영어듣기평가 제${selection.session}회`, questions, rawText, scriptSource, audioSource, sources: found.candidates, warnings };
+  const title = selection.grade === '고1' ? `${selection.year}년 ${selection.month}월 고1 모의고사 영어듣기` : `${selection.year}년 ${selection.grade} 영어듣기평가 제${selection.session}회`;
+  return { selection, title, questions, rawText, scriptSource, audioSource, sources: found.candidates, warnings };
 }
 
 export function publicPreview(exam) {

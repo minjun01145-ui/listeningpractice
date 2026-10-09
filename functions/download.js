@@ -1,4 +1,4 @@
-const OFFICIAL_HOSTS = new Set(['mid.ebs.co.kr', 'cbox.ebs.co.kr', 'midwstr.ebs.co.kr', 'wstrmid.ebs.co.kr', 'wstr.ebs.co.kr', 'www.jje.go.kr', 'gice.gen.go.kr']);
+const OFFICIAL_HOSTS = new Set(['mid.ebs.co.kr', 'cbox.ebs.co.kr', 'midwstr.ebs.co.kr', 'wstrmid.ebs.co.kr', 'wstr.ebs.co.kr', 'www.jje.go.kr', 'gice.gen.go.kr', 'www.ebsi.co.kr', 'wdown.ebsi.co.kr']);
 
 export function officialUrl(value, base = 'https://cbox.ebs.co.kr') {
   const url = new URL(value, base);

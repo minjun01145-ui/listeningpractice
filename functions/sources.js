@@ -5,14 +5,46 @@ export const GRADES = {
   '중1': { ebsId: '22000010', expectedCount: 20 },
   '중2': { ebsId: '22000011', expectedCount: 20 },
   '중3': { ebsId: '22000012', expectedCount: 20 },
+  '고1': { expectedCount: 17 },
 };
 export function validateSelection(input) {
   const { year, grade, session } = input || {};
   const currentYear = Number(new Intl.DateTimeFormat('en', { year: 'numeric', timeZone: 'Asia/Seoul' }).format(new Date()));
-  if (!Number.isInteger(year) || year < 2017 || year > currentYear || !GRADES[grade] || ![1, 2].includes(session)) {
-    throw new Error('연도(2017년 이후), 중학교 학년, 1·2회를 올바르게 선택하세요.');
+  if (!Number.isInteger(year) || year < 2017 || year > currentYear || !GRADES[grade]) {
+    throw new Error('연도(2017년 이후)와 중1·중2·중3·고1 학년을 올바르게 선택하세요.');
   }
+  if (grade === '고1') {
+    const month = input.month;
+    if (![3, 4, 6, 8, 9, 10, 11, 12].includes(month)) throw new Error('고1 모의고사의 시행 월을 선택하세요.');
+    return { year, grade, month };
+  }
+  if (![1, 2].includes(session)) throw new Error('중학교 영어듣기평가의 1·2회를 선택하세요.');
   return { year, grade, session };
+}
+
+const HIGH1_PAGE = 'https://www.ebsi.co.kr/ebs/xip/xipc/previousPaperList.ebs?targetCd=D100';
+
+export function highSchoolRecord(html, selection) {
+  const $ = load(html);
+  // EBSi supplies the precise filename in download-button arguments; never guess paths.
+  const buttons = $('button[onclick]').toArray();
+  let scriptUrl = '', audioUrl = '';
+  for (const element of buttons) {
+    const call = $(element).attr('onclick') || '';
+    const args = [...call.matchAll(/'([^']*)'/g)].map(match => match[1]);
+    const record = args[2] || '';
+    if (!record.startsWith(`${selection.year}${String(selection.month).padStart(2, '0')}`) || !record.endsWith('1') || args[5] !== '17014') continue;
+    if (!/^\/[\d]{8}\/go1\//.test(args[0] || '')) continue;
+    if (/^goDownLoadD\(/.test(call) && /\.pdf$/i.test(args[0])) scriptUrl = officialUrl(`https://wdown.ebsi.co.kr/W61001/01exam${args[0]}`);
+    if (/^goDownLoadR\(/.test(call) && /\.mp3$/i.test(args[0])) audioUrl = officialUrl(`https://wdown.ebsi.co.kr/W61001/01exam${args[0]}`);
+  }
+  return scriptUrl || audioUrl ? { name: 'EBSi 고1 모의고사(전국연합학력평가)', pageUrl: HIGH1_PAGE, scriptUrl, audioUrl, zipUrl: '' } : null;
+}
+
+async function findHighSchool(selection) {
+  const body = new URLSearchParams({ targetCd: 'D100', yearList: String(selection.year), monthList: String(selection.month).padStart(2, '0'), arOrd: '3', subjIdList: '17014', currentPage: '1' });
+  const result = await download('https://www.ebsi.co.kr/ebs/xip/xipc/previousPaperListAjax.ajax', { method: 'POST', body, headers: { 'content-type': 'application/x-www-form-urlencoded' } });
+  return highSchoolRecord(result.bytes.toString('utf8'), selection);
 }
 
 export function ebsRecord(data, selection) {
@@ -78,7 +110,7 @@ async function findJeju(selection) {
 
 // Each adapter owns discovery; a broken site never supplies a different exam.
 export const sourceProviders = [findEbs, findJeju];
-export async function discover(selection, providers = sourceProviders) {
+export async function discover(selection, providers = selection.grade === '고1' ? [findHighSchool] : sourceProviders) {
   const candidates = [], warnings = [];
   for (const provider of providers) {
     try {
