@@ -5,7 +5,7 @@ const $ = id => document.getElementById(id);
 const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const API = '/api/past-exam';
 
-async function request(action, selection, binary = false) {
+export async function request(action, selection, binary = false) {
   let response;
   try {
     response = await fetch(`${API}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(selection), signal: AbortSignal.timeout(65000) });

@@ -11,7 +11,7 @@ async function fixture(t, failure = '') {
     res.setHeader('Content-Type', 'text/javascript');
     if (path === '/teacher') {
       res.setHeader('Content-Type', 'text/html');
-      return res.end(failure === 'old-html' ? '<h1>Old teacher</h1>' : '<div id="pastExamCard"><button id="importExamBtn"></button><select id="importMonth"></select><input id="ollamaApiKey"><button id="ollamaSaveBtn"></button><button id="importAiRetranslate"></button></div><script type="module" src="./teacher.js?v=1"></script>');
+      return res.end(failure === 'old-html' ? '<h1>Old teacher</h1>' : '<div id="pastExamCard"><button id="importExamBtn"></button><select id="importMonth"></select><input id="ollamaApiKey"><button id="ollamaSaveBtn"></button><button id="bulkStartBtn"></button><button id="importAiRetranslate"></button></div><script type="module" src="./teacher.js?v=1"></script>');
     }
     if (path === '/teacher.js') return res.end(failure === 'old-js' ? 'export const old=true;' : 'import { initPastExamImport } from "./auto-import.js";');
     if (path === '/auto-import.js') {

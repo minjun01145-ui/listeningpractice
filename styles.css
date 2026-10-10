@@ -238,3 +238,11 @@ tr:last-child td { border-bottom:0; }
 .import-raw { max-height: 250px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 #importQuestions { max-height: 480px; overflow: auto; margin: 14px 0; }
 #importSources a { overflow-wrap: anywhere; }
+
+.bulk-choices { display: grid; gap: 8px; margin: 10px 0; }
+.bulk-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.bulk-row > b { min-width: 36px; }
+.bulk-choice { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.bulk-progress { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.bulk-progress progress { flex: 1; min-width: 0; height: 14px; }
+.status-pill.danger { background: var(--danger-soft); color: var(--danger); }

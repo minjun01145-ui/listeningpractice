@@ -133,7 +133,8 @@ const minutes = ms => ms < 60000 ? '1분 이내' : `약 ${Math.round(ms / 60000)
 
 // 1) Whisper writes down the English dialogue (whole file, chunks cut at pauses),
 // 2) each question's script is aligned to it, 3) a short Korean pass finds "N번".
-export async function analyzeAudioTiming({ blob, questions, status, signal, debug = false }) {
+// progress(fraction 0..1) is optional and only reports how far the analysis is.
+export async function analyzeAudioTiming({ blob, questions, status, signal, progress = () => {}, debug = false }) {
   if (active) throw new Error('다른 음원을 분석 중입니다. 해당 분석을 완료하거나 중지하세요.');
   if (!blob || blob.size >= 100 * 1024 * 1024) throw new Error('100MB 미만의 전체 음원이 필요합니다.');
   if (!questions?.length) throw new Error('문항 대본이 필요합니다.');
@@ -148,6 +149,7 @@ export async function analyzeAudioTiming({ blob, questions, status, signal, debu
     const started = Date.now(); let done = 0;
     const todo = chunks.filter(chunk => !checkpoint.english[chunk.start.toFixed(2)]).length;
     for (const [index, chunk] of chunks.entries()) {
+      progress(0.85 * index / chunks.length);
       const key = chunk.start.toFixed(2);
       if (checkpoint.english[key]) continue;
       if (signal?.aborted) throw new Error('분석을 중지했습니다. 완료된 구간은 저장되어 다시 누르면 이어서 진행합니다.');
@@ -175,6 +177,7 @@ export async function analyzeAudioTiming({ blob, questions, status, signal, debu
       for (const gap of uncoveredSpeech(profile, segments, before ? before.englishStart + 2 : 0, after ? after.englishStart : duration).slice(0, 4)) if (!gaps.some(other => other.start === gap.start)) gaps.push(gap);
     });
     for (const [index, gap] of gaps.entries()) {
+      progress(0.85 + 0.05 * index / gaps.length);
       const key = `${gap.start.toFixed(1)}-${gap.end.toFixed(1)}`;
       if (signal?.aborted) throw new Error('분석을 중지했습니다. 완료된 구간은 저장되어 다시 누르면 이어서 진행합니다.');
       checkpoint.repair[key] ||= (await transcribe(samples, Math.max(0, gap.start - 0.3), Math.min(duration, gap.end + 0.5, gap.start + 29), 'en', signal, text => status(`1/2단계 놓친 대화 다시 듣기 ${index + 1}/${gaps.length} · ${text}`)))
@@ -187,6 +190,7 @@ export async function analyzeAudioTiming({ blob, questions, status, signal, debu
     }
     const cues = [];
     for (const [index, item] of alignment.entries()) {
+      progress(0.9 + 0.1 * index / alignment.length);
       if (item.sharedWith) { cues.push(null); continue; }
       const windows = cueWindows(alignment, index, segments, onsets, duration);
       const around = item.englishStart === null ? windows : [{ start: Math.max(0, item.englishStart - 26), end: item.englishStart + 1 }];

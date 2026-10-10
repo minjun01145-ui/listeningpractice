@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>영어 듣기 교사용 관리</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-  <link rel="stylesheet" href="./styles.css?v=20261009-1" />
+  <link rel="stylesheet" href="./styles.css?v=20261010-1" />
 </head>
 <body>
   <main class="app-shell">
@@ -84,6 +84,23 @@
           </fieldset>
         </div>
       </div>
+      <div class="card" id="bulkImportCard">
+        <h2>기출 전체 불러오기</h2>
+        <p class="help">연도와 학년·회차를 체크하면 시험마다 대본 → 한글 해석 → 전체 음원 → 자동 타이밍 → 회차 저장까지 자동으로 진행합니다. 한 시험에 약 5~7분 걸리므로 컴퓨터를 켜 둔 채 진행하세요(다른 탭은 사용해도 됩니다). 중지하거나 창을 닫아도 이미 끝난 시험은 저장되어 있고, 다시 시작하면 등록된 회차는 건너뛰고 남은 시험부터 진행합니다. 저장된 회차는 학생에게 숨김 상태입니다.</p>
+        <div class="row wrap import-selectors">
+          <div class="field"><label for="bulkYear">연도</label><input id="bulkYear" type="number" min="2017" step="1" value="2025" /></div>
+          <button id="bulkSelectAll" class="btn ghost small" type="button">전체 선택</button><button id="bulkSelectNone" class="btn ghost small" type="button">전체 해제</button>
+        </div>
+        <div id="bulkChoices" class="bulk-choices"></div>
+        <p class="help">고1은 모의고사 시행 월입니다. 해당 연도에 자료가 없는 월은 ‘건너뜀’으로 표시됩니다.</p>
+        <label class="help"><input id="bulkSkipExisting" type="checkbox" checked /> 같은 이름으로 이미 등록된 회차는 건너뛰기</label>
+        <div class="row wrap"><button id="bulkStartBtn" class="btn primary">체크한 기출 모두 불러오기</button><button id="bulkStopBtn" class="btn ghost hidden" type="button">중지</button></div>
+        <div class="bulk-progress"><progress id="bulkProgress" max="100" value="0"></progress><b id="bulkPercent">0.0%</b></div>
+        <p id="bulkStatus" class="help" role="status" aria-live="polite"></p>
+        <p id="bulkStep" class="help"></p>
+        <p id="bulkSummary"></p>
+        <div id="bulkResults"></div>
+      </div>
       <div class="card">
         <h2>새 회차 만들기</h2>
         <div class="field"><label>회차 이름</label><input id="roundTitle" placeholder="예: 2026 영어듣기 2회" /></div>
@@ -136,6 +153,6 @@
     </div>
   </div>
 
-  <script type="module" src="./teacher.js?v=20261010-1"></script>
+  <script type="module" src="./teacher.js?v=20261010-2"></script>
 </body>
 </html>

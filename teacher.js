@@ -7,7 +7,8 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-storage.js";
 import { getQuestionGroupLabel, getQuestionGroupRanges } from "./question-groups.js?v=20260914-1";
 import { parseQuestions, buildGroups } from "./round-script.js?v=20261006-1";
-import { initPastExamImport } from "./auto-import.js?v=20261010-1";
+import { initPastExamImport } from "./auto-import.js?v=20261010-2";
+import { initBulkImport } from "./bulk-import.js?v=20261010-2";
 import { initTimingSettings, analyzeAudioTiming, showTimingResult, validateTimings } from "./audio-timing.js";
 
 const $=id=>document.getElementById(id);
@@ -286,4 +287,5 @@ $("managementWeek").value=koreaDateKey();
 
 initTimingSettings();
 initPastExamImport({save:saveImportedRound});
+initBulkImport({save:saveImportedRound,rounds:()=>state.rounds});
 loadStudents();loadRounds();

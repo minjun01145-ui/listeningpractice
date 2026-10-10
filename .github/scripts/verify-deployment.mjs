@@ -17,6 +17,7 @@ export async function verifyDeployment(origin, revision = Date.now().toString())
   assert.match(html, /id="importMonth"/, 'High school mock-exam selector is missing');
   assert.match(html, /id="ollamaApiKey"/, 'Ollama connection settings are missing');
   assert.match(html, /id="ollamaSaveBtn"/, 'Ollama key save button is missing');
+  assert.match(html, /id="bulkStartBtn"/, 'Bulk import is missing');
   assert.match(html, /id="importAiRetranslate"/, 'AI script translation is missing');
   const modulePath = html.match(/<script\b[^>]*\bsrc="([^"]*teacher\.js[^\"]*)"/i)?.[1];
   assert.ok(modulePath, 'Teacher module is missing');

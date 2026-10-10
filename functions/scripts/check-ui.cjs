@@ -11,7 +11,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
   const exam = await prepareExam({ year: 2025, grade: '중1', session: 1 });
   const preview = publicPreview(exam), audio = await downloadExamAudio(exam);
   const root = resolve(__dirname, '../..');
-  const files = new Set(['teacher.html', 'teacher.js', 'index.html', 'student.js', 'styles.css', 'favicon.svg', 'auto-import.js', 'round-script.js', 'question-groups.js', 'audio-timing.js', 'timing-match.js', 'speech-worker.js', 'speech-session.js', 'speech-download.js']);
+  const files = new Set(['teacher.html', 'teacher.js', 'index.html', 'student.js', 'styles.css', 'favicon.svg', 'auto-import.js', 'bulk-import.js', 'round-script.js', 'question-groups.js', 'audio-timing.js', 'timing-match.js', 'speech-worker.js', 'speech-session.js', 'speech-download.js']);
   const server = createServer(async (req, res) => {
     const file = new URL(req.url, 'http://localhost').pathname.slice(1);
     if (!files.has(file)) { res.writeHead(404).end(); return; }
@@ -82,7 +82,11 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
     let failAi = 0;
     await page.route('**/api/past-exam/**', async route => {
       const action = new URL(route.request().url()).pathname.split('/').at(-1);
-      if (action === 'prepare') return route.fulfill({ json: preview });
+      if (action === 'prepare') {
+        const body = route.request().postDataJSON();
+        if (body.grade === '고1') return route.fulfill({ status: 422, json: { error: '자료를 자동으로 찾지 못했습니다. 선택한 연도·학년·회차를 확인하고 수동 등록을 이용하세요.' } });
+        return route.fulfill({ json: { ...preview, title: `${body.year}년 ${body.grade} 영어듣기평가 제${body.session}회` } });
+      }
       if (action === 'ollama') return route.fulfill({ json: { connected: true, model: 'deepseek-v4.1-flash' } });
       if (failPartial) return route.fulfill({ status: 422, json: { error: '검증용 서비스 실패' } });
       if (action === 'translate-ai') {
@@ -226,7 +230,36 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
     await page.locator('#practiceAudio').evaluate(audio => audio.dispatchEvent(new Event('ended')));
     await page.locator('#listenMessage').filter({ hasText: '횟수에 들어가지 않았습니다' }).waitFor();
     assert.equal(await page.evaluate(() => Object.keys(window.__testFirebase.activityLogs).length), 0);
+    // Bulk import: whole pipeline per exam, skip saved rounds and missing months, stop.
+    failPartial = false;
+    await page.addInitScript(() => { window.__testFirebase = { docs: {}, progress: {}, activityLogs: {}, uploads: [], attempts: [], nextId: 100, failUpload: false, failWrite: false }; });
+    await page.goto(`${origin}/teacher.html`);
+    await page.getByRole('button', { name: '회차·대본·음원', exact: true }).click();
+    await page.locator('#ollamaApiKey').fill('isolated-ui-test-key');
+    await page.locator('#bulkSelectNone').click();
+    const choose = async labels => { for (const label of labels) await page.locator('#bulkChoices label').filter({ hasText: label }).first().locator('input').check(); };
+    const row = (grade, text) => page.locator('#bulkChoices .bulk-row').filter({ hasText: grade }).locator('label').filter({ hasText: text }).locator('input');
+    await row('중1', '1회').check(); await row('중1', '2회').check(); await row('고1', '3월').check();
+    await page.locator('#bulkStartBtn').click();
+    await page.locator('#bulkStatus').filter({ hasText: '전체 작업 완료' }).waitFor({ timeout: 120000 });
+    assert.equal(await page.locator('#bulkPercent').textContent(), '100.0%');
+    let bulk = await page.evaluate(() => Object.values(window.__testFirebase.docs));
+    assert.deepEqual(bulk.map(round => round.title).sort(), ['2025년 중1 영어듣기평가 제1회', '2025년 중1 영어듣기평가 제2회']);
+    assert.ok(bulk.every(round => round.questions.length === 20 && round.questionTimings.length === 20 && round.visible === false && round.wholeAudioPath && round.questions[0].rows[0].korean === '[검증용 해석]'));
+    assert.match(await page.locator('#bulkResults').textContent(), /고1 모의고사.*건너뜀.*공식 자료 없음/);
+    await page.locator('#bulkStartBtn').click();
+    await page.locator('#bulkSummary').filter({ hasText: '건너뜀 3' }).waitFor({ timeout: 60000 });
+    assert.equal(await page.evaluate(() => Object.keys(window.__testFirebase.docs).length), 2, 'Saved rounds are skipped on a second run');
+    assert.match(await page.locator('#bulkSummary').textContent(), /건너뜀 3/);
+    await page.locator('#bulkSelectNone').click(); await row('중2', '1회').check();
+    page.removeAllListeners('dialog'); page.on('dialog', dialog => dialog.accept());
+    await page.locator('#bulkStartBtn').click();
+    await page.locator('#bulkStep').filter({ hasText: '자동 타이밍' }).waitFor();
+    await page.locator('#bulkStopBtn').click();
+    await page.locator('#bulkStatus').filter({ hasText: '중지했습니다' }).waitFor({ timeout: 60000 });
+    assert.equal(await page.evaluate(() => Object.keys(window.__testFirebase.docs).length), 2, 'A stopped exam is not saved');
+    assert.match(await page.locator('#bulkResults').textContent(), /중지/);
     assert.deepEqual(errors, []);
-    console.log(`Browser import passed: real 20-question PDF, ${duration.toFixed(1)}s MP3, mocked speech with real timing alignment, saved/forgotten API key, no writes before confirmation, upload/write retries without duplicates, saved/manual timings, partial failures, mobile layout and student MP3 playback.`);
+    console.log(`Browser import passed: real 20-question PDF, ${duration.toFixed(1)}s MP3, mocked speech with real timing alignment, saved/forgotten API key, no writes before confirmation, upload/write retries without duplicates, saved/manual timings, bulk import with skip/stop, partial failures, mobile layout and student MP3 playback.`);
   } finally { await browser.close(); await Promise.all([new Promise(resolve => server.close(resolve)), new Promise(resolve => audioServer.close(resolve))]); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
