@@ -46,13 +46,13 @@
 
     <section id="tab-rounds" class="tab-panel hidden">
       <details class="card" id="timingSettings">
-        <summary><b>AI 연결·자동 타이밍 설정</b></summary>
-        <p class="help">실제 음원을 음성인식해 대본과 대조합니다. Ollama를 연결하면 DeepSeek가 실제 시간 후보를 추가 대조합니다. DeepSeek 단독으로 음원을 듣고 시간을 추측하지 않습니다.</p>
-        <div class="field"><label for="timingSpeechProvider">음성인식 방식</label><select id="timingSpeechProvider"><option value="local">이 기기 Whisper (추가 API 비용 없음)</option><option value="google">Google 음성인식 (API 활성화 필요·사용량 과금)</option></select><p class="help">Whisper는 처음 사용할 때 모델을 다운로드하며, 컴퓨터에서 분석하는 것을 권장합니다. 분석에 몇 분 이상 걸릴 수 있습니다.</p></div>
+        <summary><b>AI 연결(Ollama Cloud)·자동 타이밍 설정</b></summary>
         <div class="grid-2"><div class="field"><label for="ollamaApiKey">Ollama Cloud API 키</label><input id="ollamaApiKey" type="password" autocomplete="off" placeholder="API 키 입력" /></div><div class="field"><label for="ollamaModel">모델</label><input id="ollamaModel" value="deepseek-v4.1-flash" maxlength="100" /></div></div>
-          <p class="help">키는 이 탭에만 유지하며 저장하지 않습니다. 연결·문항 대조·기출 한글 번역 요청 때 서버를 거쳐 Ollama로 전달합니다. 키가 입력되어 있으면 가져온 대본도 이 모델로 번역합니다.</p>
-        <div class="row wrap"><button id="ollamaConnectBtn" class="btn small">Ollama 연결 확인</button><button id="ollamaForgetBtn" class="btn ghost small">키 지우기</button><span id="ollamaStatus" class="help" role="status" aria-live="polite"></span></div>
-        <label class="help"><input id="timingIncludeInstructions" type="checkbox" checked /> 문항 번호 안내가 인식되면 안내 시작 시간 포함 (미인식 문항은 영어 대본 시작 시간으로 제안)</label>
+        <div class="row wrap"><button id="ollamaSaveBtn" class="btn primary small">저장</button><button id="ollamaConnectBtn" class="btn small">연결 확인</button><button id="ollamaForgetBtn" class="btn ghost small">키 삭제</button><span id="ollamaStatus" class="help" role="status" aria-live="polite"></span></div>
+        <p class="help">‘저장’을 누르면 이 컴퓨터의 이 브라우저에만 보관되어 다음에 들어와도 자동으로 입력됩니다(Firestore·서버에는 저장하지 않음). 여러 사람이 쓰는 컴퓨터에서는 저장하지 마세요. 키가 있으면 기출 대본의 한글 해석을 이 모델로 번역합니다.</p>
+        <h3>자동 타이밍</h3>
+        <p class="help">이 컴퓨터에서 Whisper 음성인식으로 영어 대화를 받아써 대본과 맞춘 뒤, 각 문항의 “N번” 안내 음성 위치를 찾습니다. 처음 한 번 음성인식 모델(약 136MB)을 내려받고, 20분 분량 음원은 보통 5~10분 걸립니다. 분석 중 다른 탭으로 이동해도 되며, 멈추거나 중지해도 다시 누르면 완료된 구간부터 이어갑니다. 결과는 확인 후 저장할 때만 반영됩니다.</p>
+        <label class="help"><input id="timingIncludeInstructions" type="checkbox" checked /> “N번” 안내 음성부터 문항 시작으로 잡기 (해제하면 영어 대화 시작 시간)</label>
       </details>
       <div class="card" id="pastExamCard">
         <h2>기출 자동 불러오기</h2>
@@ -136,6 +136,6 @@
     </div>
   </div>
 
-  <script type="module" src="./teacher.js?v=20261009-3"></script>
+  <script type="module" src="./teacher.js?v=20261010-1"></script>
 </body>
 </html>

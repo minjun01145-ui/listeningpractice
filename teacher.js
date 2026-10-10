@@ -7,7 +7,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-storage.js";
 import { getQuestionGroupLabel, getQuestionGroupRanges } from "./question-groups.js?v=20260914-1";
 import { parseQuestions, buildGroups } from "./round-script.js?v=20261006-1";
-import { initPastExamImport } from "./auto-import.js?v=20261009-3";
+import { initPastExamImport } from "./auto-import.js?v=20261010-1";
 import { initTimingSettings, analyzeAudioTiming, showTimingResult, validateTimings } from "./audio-timing.js";
 
 const $=id=>document.getElementById(id);
@@ -222,8 +222,8 @@ async function analyzeRoundTimings(roundId,button){
     }
     const result=await analyzeAudioTiming({blob:entry.blob,questions:round.questions,status:progress,signal:controller.signal});
     const current=state.rounds.find(r=>r.id===roundId);if(!input.isConnected||current?.wholeAudioUrl!==source||JSON.stringify(current.questions)!==scriptSignature)throw new Error("분석 중 회차·음원·대본이 변경되었습니다. 새 내용을 기준으로 다시 분석하세요.");
-    input.value=timingsToText(result.timings);showTimingResult(document.querySelector(`[data-timing-result="${selector}"]`),result,document.querySelector(`[data-timing-audio="${selector}"]`));progress("자동 타이밍 제안 완료. 확인·수정 후 ‘문항 시간 저장’을 누르세요.");
-  }catch(error){progress(controller.signal.aborted?"분석을 중지했습니다. 완료 구간은 유지됩니다.":error.message);}
+    input.value=timingsToText(result.timings);showTimingResult(document.querySelector(`[data-timing-result="${selector}"]`),result,document.querySelector(`[data-timing-audio="${selector}"]`));progress(result.missing?.length?`${result.timings.length}문항 제안 완료 · ${result.missing.length}문항은 위치를 찾지 못했습니다. 음원을 들어 직접 입력하세요.`:"자동 타이밍 제안 완료. 확인·수정 후 ‘문항 시간 저장’을 누르세요.");
+  }catch(error){progress(controller.signal.aborted?"분석을 중지했습니다. 다시 누르면 완료된 구간부터 이어갑니다.":error.message);}
   finally{roundTimingControllers.delete(roundId);button.disabled=false;save.disabled=false;input.disabled=false;cancel.classList.add("hidden");cancel.onclick=null;}
 }
 async function saveSegment(roundId,index){const round=state.rounds.find(r=>r.id===roundId);const groups=[...(round.groups||[])];const start=document.querySelector(`[data-seg-start="${CSS.escape(roundId+'|'+index)}"]`).value;const end=document.querySelector(`[data-seg-end="${CSS.escape(roundId+'|'+index)}"]`).value;if(start!==""&&end!==""&&Number(end)<=Number(start))return alert("끝 초는 시작 초보다 커야 합니다.");groups[index]={...groups[index],segmentStart:start===""?"":Number(start),segmentEnd:end===""?"":Number(end)};await updateDoc(doc(db,"rounds",roundId),{groups,updatedAt:serverTimestamp()});alert("구간을 저장했습니다.");}

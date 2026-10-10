@@ -8,12 +8,15 @@ const API = '/api/past-exam';
 async function request(action, selection, binary = false) {
   let response;
   try {
-    response = await fetch(`${API}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(selection), signal: AbortSignal.timeout(action === 'translate-ai' ? 115000 : 65000) });
+    response = await fetch(`${API}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(selection), signal: AbortSignal.timeout(65000) });
   } catch { throw new Error('자동 가져오기 서버에 연결하지 못했거나 시간이 초과되었습니다. 잠시 후 재시도하세요.'); }
   const type = response.headers.get('content-type') || '';
   if (!response.ok || (!binary && !type.includes('application/json'))) {
     const error = type.includes('application/json') ? await response.json() : null;
-    throw new Error(error?.error || '자동 가져오기 서버가 준비되지 않았습니다. Firebase Functions와 Hosting을 함께 배포했는지 확인하세요.');
+    if (error?.error) throw new Error(error.error);
+    // Hosting answers a proxied request that ran past 60 seconds with an HTML error page.
+    if ([502, 503, 504].includes(response.status)) throw new Error('서버 응답 시간이 초과되었습니다. 잠시 후 다시 시도하세요.');
+    throw new Error('자동 가져오기 서버가 준비되지 않았습니다. Firebase Functions와 Hosting을 함께 배포했는지 확인하세요.');
   }
   if (binary) {
     if (!type.includes('audio/')) throw new Error('전체 음원 대신 다른 응답을 받았습니다.');
@@ -63,10 +66,59 @@ export function initPastExamImport({ save }) {
     } catch (error) { draft.warnings.push(`전체 음원 다운로드 실패: ${error.message} 대본은 유지됩니다. 직접 파일을 선택하거나 다시 가져오세요.`); }
     warnings();
   }
+  // Ollama: one question per request (3 at a time) so each call is short and a
+  // failure only affects that question. Rows are matched by their English text,
+  // so edits made to other rows in the meantime are kept.
+  async function translateWithAi(replace, { apiKey, model }) {
+    const pending = parseQuestions($('importScript').value, { allowEnglishOnly: true }).filter(q => q.rows.some(row => replace || !row.korean));
+    if (!pending.length) { $('importTranslationStatus').textContent = '번역할 빈 해석이 없습니다.'; return; }
+    const apply = (number, english, korean) => {
+      const current = parseQuestions($('importScript').value, { allowEnglishOnly: true });
+      const question = current.find(q => q.number === number);
+      question?.rows.forEach((row, index) => {
+        const match = english[index] === row.english ? index : english.indexOf(row.english);
+        if (match >= 0 && korean[match] && (replace || !row.korean)) row.korean = korean[match];
+      });
+      $('importScript').value = importedScriptText(current); preview();
+    };
+    let done = 0, fatal = '';
+    const failures = new Map();
+    const run = async questions => {
+      const queue = [...questions];
+      const worker = async () => {
+        for (let question; (question = queue.shift());) {
+          const english = question.rows.map(row => row.english);
+          try {
+            const result = await request('translate-ai', { apiKey, model, grade: draft.grade, number: question.number, rows: english });
+            apply(question.number, english, result.korean);
+            if (result.missing) failures.set(question.number, `${result.missing}줄 번역 누락`); else failures.delete(question.number);
+          } catch (error) {
+            failures.set(question.number, error.message);
+            // A wrong key or model fails every question the same way; stop at once.
+            if (/인증|API 키|모델을 찾지|모델명/.test(error.message)) { fatal = error.message; queue.length = 0; }
+          }
+          done++;
+          $('importTranslationStatus').textContent = `AI 한글 번역 중 · ${Math.min(done, pending.length)}/${pending.length}문항 · ${model}`;
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+    };
+    await run(pending);
+    // One more pass for questions that failed (busy server, bad reply).
+    if (failures.size && !fatal) await run(pending.filter(q => failures.has(q.number)));
+    if (fatal) { draft.warnings.push(`번역 요청 실패: ${fatal} 영어 대본은 유지됩니다.`); $('importTranslationStatus').textContent = `번역 실패: ${fatal}`; return; }
+    for (const [number, message] of failures) draft.warnings.push(`번역 요청 실패: ${number}번 · ${message} ‘빈 해석 번역 다시 시도’를 누르세요.`);
+    $('importTranslationStatus').textContent = `번역: Ollama Cloud · ${model}${failures.size ? ` · ${failures.size}문항 실패, 다시 시도 가능` : ' · 완료'}`;
+  }
   async function translate(replace = false) {
     const { apiKey, model } = timingConnection();
     if (replace && !apiKey) { status('AI 연결 설정에 Ollama API 키를 먼저 입력하세요.'); return; }
     draft.warnings = draft.warnings.filter(text => !/한국어 자동 번역|번역 요청 실패/.test(text));
+    if (apiKey) {
+      try { await translateWithAi(replace, { apiKey, model }); }
+      catch (error) { draft.warnings.push(`번역 요청 실패: ${error.message} 영어 대본은 유지됩니다.`); }
+      warnings(); preview(); return;
+    }
     function merge(result) {
       // Preserve teacher edits on retry; only match exact official English rows.
       const current = parseQuestions($('importScript').value, { allowEnglishOnly: true });
@@ -82,26 +134,8 @@ export function initPastExamImport({ save }) {
       $('importTranslationStatus').textContent = `번역: ${result.translationProvider || 'Google Cloud Translation'}${draft.warnings.some(text => /번역 요청 실패/.test(text)) ? ' · 일부 실패, 재시도 가능' : ''}`;
       preview();
     }
-    try {
-      const current = parseQuestions($('importScript').value, { allowEnglishOnly: true });
-      if (!apiKey) merge(await request('translate', draft.selection));
-      else {
-        const pending = draft.questions.filter(q => current.some(item => item.number === q.number && item.rows.some(row => (replace || !row.korean) && q.rows.some(original => original.english === row.english))));
-        const batches = []; let batch = [], size = 0;
-        for (const question of pending) {
-          const length = question.rows.reduce((sum, row) => sum + row.english.length, 0);
-          if (batch.length && (batch.length >= 3 || size + length > 4000)) { batches.push(batch); batch = []; size = 0; }
-          batch.push(question.number); size += length;
-        }
-        if (batch.length) batches.push(batch);
-        for (const [index, numbers] of batches.entries()) {
-          $('importTranslationStatus').textContent = `AI 한글 번역 중 · ${index + 1}/${batches.length} · ${model}`;
-          try { merge(await request('translate-ai', { ...draft.selection, apiKey, model, numbers })); }
-          catch (error) { draft.warnings.push(`번역 요청 실패: ${numbers.join('·')}번 · ${error.message} 영어 대본은 유지됩니다.`); }
-        }
-        $('importTranslationStatus').textContent = `번역: Ollama Cloud · ${model}${draft.warnings.some(text => /번역 요청 실패/.test(text)) ? ' · 일부 실패, 재시도 가능' : ' · 완료'}`;
-      }
-    } catch (error) { draft.warnings.push(`번역 요청 실패: ${error.message} 영어 대본은 유지됩니다.`); }
+    try { merge(await request('translate', draft.selection)); }
+    catch (error) { draft.warnings.push(`번역 요청 실패: ${error.message} 영어 대본은 유지됩니다. AI 연결 설정에 Ollama API 키를 넣으면 AI로 번역합니다.`); }
     warnings(); preview();
   }
   $('importExamBtn').addEventListener('click', async () => {
@@ -145,7 +179,7 @@ export function initPastExamImport({ save }) {
       const result = await analyzeAudioTiming({ blob: draft.audioBlob, questions, status: progress, signal: timingController.signal });
       draft.questionTimings = result.timings; draft.timingSignature = signature(questions);
       $('importTimings').value = timingsText(result.timings); showTimingResult($('importTimingResult'), result, $('importAudio'));
-      progress('자동 타이밍 제안 완료. 음원을 재생해 확인·수정한 뒤 회차를 생성하세요.');
+      progress(result.missing?.length ? `${result.timings.length}문항 제안 완료 · ${result.missing.length}문항은 위치를 찾지 못했습니다. 음원을 들어 직접 입력하세요.` : '자동 타이밍 제안 완료. 음원을 재생해 확인·수정한 뒤 회차를 생성하세요.');
     } catch (error) { progress(error.message); }
     finally { lock(false); timingController = null; $('importCancelTiming').classList.add('hidden'); }
   });

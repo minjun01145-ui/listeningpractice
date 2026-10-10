@@ -8,11 +8,10 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
 
 (async () => {
   const { prepareExam, publicPreview, downloadExamAudio } = await import('../import-service.js');
-  const { analyzeTimings, scanTimings } = await import('../timing-service.js');
   const exam = await prepareExam({ year: 2025, grade: '중1', session: 1 });
   const preview = publicPreview(exam), audio = await downloadExamAudio(exam);
   const root = resolve(__dirname, '../..');
-  const files = new Set(['teacher.html', 'teacher.js', 'index.html', 'student.js', 'styles.css', 'favicon.svg', 'auto-import.js', 'round-script.js', 'question-groups.js', 'audio-timing.js', 'speech-worker.js']);
+  const files = new Set(['teacher.html', 'teacher.js', 'index.html', 'student.js', 'styles.css', 'favicon.svg', 'auto-import.js', 'round-script.js', 'question-groups.js', 'audio-timing.js', 'timing-match.js', 'speech-worker.js', 'speech-session.js', 'speech-download.js']);
   const server = createServer(async (req, res) => {
     const file = new URL(req.url, 'http://localhost').pathname.slice(1);
     if (!files.has(file)) { res.writeHead(404).end(); return; }
@@ -47,11 +46,12 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
     await page.addInitScript(() => { window.__testFirebase = { docs: {}, progress: {}, activityLogs: {}, uploads: [], attempts: [], nextId: 0, failUpload: false, failWrite: false }; });
     await page.addInitScript(questions => {
       window.__speechCalls = 0;
+      // Whisper stand-in: the n-th English chunk hears "n." and question n's opening.
       window.Worker = class {
-        postMessage() {
-          const q = questions[window.__speechCalls++];
-          const words = q ? [{ text: `${q.number}번`, start: 1, end: 1.5 }, ...q.rows.map(r => r.english.replace(/^[MW]:\s*/, '')).join(' ').split(/\s+/).slice(0, 20).map((text, i) => ({ text, start: 3 + i * .2, end: 3.1 + i * .2 }))] : [];
-          setTimeout(() => this.onmessage?.({ data: { words } }), 20);
+        postMessage({ language }) {
+          const q = language === 'en' ? questions[window.__speechCalls++] : null;
+          const segments = q ? [{ text: `${q.number}.`, start: 1, end: 1.5 }, { text: q.rows.map(r => r.english.replace(/^[MW]:\s*/, '')).join(' ').split(/\s+/).slice(0, 20).join(' '), start: 3, end: 9 }] : [];
+          setTimeout(() => this.onmessage?.({ data: { segments, duration: 30 } }), 20);
         }
         terminate() {}
       };
@@ -79,20 +79,18 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
     ` }));
     let failPartial = false;
     const aiTranslationCalls = [];
-    let failAiOnce = false;
+    let failAi = 0;
     await page.route('**/api/past-exam/**', async route => {
       const action = new URL(route.request().url()).pathname.split('/').at(-1);
       if (action === 'prepare') return route.fulfill({ json: preview });
       if (action === 'ollama') return route.fulfill({ json: { connected: true, model: 'deepseek-v4.1-flash' } });
-      if (action === 'timings') return route.fulfill({ json: await analyzeTimings(route.request().postDataJSON()) });
-      if (action === 'timing-scan') return route.fulfill({ json: scanTimings(route.request().postDataJSON()) });
       if (failPartial) return route.fulfill({ status: 422, json: { error: '검증용 서비스 실패' } });
       if (action === 'translate-ai') {
         const input = route.request().postDataJSON(); aiTranslationCalls.push(input);
         assert.equal(input.apiKey, 'isolated-ui-test-key');
-        assert.ok(input.numbers.length <= 3);
-        if (failAiOnce) { failAiOnce = false; return route.fulfill({ status: 422, json: { error: '검증용 AI 번역 실패' } }); }
-        return route.fulfill({ json: { questions: preview.questions.filter(q => input.numbers.includes(q.number)).map(q => ({ ...q, rows: q.rows.map(row => ({ ...row, korean: '[검증용 해석]' })) })), warnings: [], translationProvider: 'Ollama Cloud · deepseek-v4.1-flash' } });
+        assert.ok(Number.isInteger(input.number) && input.rows.every(row => typeof row === 'string'));
+        if (failAi) { failAi--; return route.fulfill({ status: 422, json: { error: '검증용 AI 번역 실패' } }); }
+        return route.fulfill({ json: { number: input.number, korean: input.rows.map(() => '[검증용 해석]'), missing: 0, model: 'deepseek-v4.1-flash' } });
       }
       if (action === 'audio') return route.fulfill({ contentType: 'audio/mpeg', body: audio });
       return route.fulfill({ json: { questions: preview.questions.map(q => ({ ...q, rows: q.rows.map(row => ({ ...row, korean: '[검증용 해석]' })) })), warnings: [] } });
@@ -105,26 +103,26 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
     });
     await page.goto(`${origin}/teacher.html`);
     await page.getByRole('button', { name: '회차·대본·음원', exact: true }).click();
-    await page.locator('#timingSettings summary').click();
+    assert.equal(await page.locator('#timingSettings').evaluate(details => details.open), true, 'Settings open while no key is saved');
     await page.locator('#ollamaApiKey').fill('isolated-ui-test-key');
     await page.locator('#importExamBtn').click();
     await page.locator('#importStatus').filter({ hasText: '미리보기 준비 완료' }).waitFor();
     assert.equal(await page.locator('#importQuestions .preview-q').count(), 20);
     assert.equal(await page.locator('#importSources a').count(), 4);
     assert.ok((await page.locator('#importScript').inputValue()).includes('[검증용 해석]'));
-    assert.deepEqual(aiTranslationCalls.flatMap(call => call.numbers), preview.questions.map(q => q.number));
+    assert.deepEqual(aiTranslationCalls.map(call => call.number).sort((a, b) => a - b), preview.questions.map(q => q.number));
     assert.match(await page.locator('#importTranslationStatus').textContent(), /Ollama Cloud.*완료/);
     const teacherEdit = (await page.locator('#importScript').inputValue()).replace('[검증용 해석]', '교사의 기존 해석').replace(`${preview.questions[1].rows[0].english}\t[검증용 해석]`, `${preview.questions[1].rows[0].english}\t`);
     await page.locator('#importScript').fill(teacherEdit);
-    failAiOnce = true;
+    failAi = 2; // fails the first try and the automatic retry
     await page.locator('#importRetryTranslation').click();
     await page.locator('#importStatus').filter({ hasText: '재시도 완료' }).waitFor();
-    assert.match(await page.locator('#importWarnings').textContent(), /AI 번역 실패/);
+    assert.match(await page.locator('#importWarnings').textContent(), /2번.*검증용 AI 번역 실패/);
     assert.equal(await page.locator('#importScript').inputValue(), teacherEdit);
     await page.locator('#importRetryTranslation').click();
     await page.locator('#importTranslationStatus').filter({ hasText: '완료' }).waitFor();
     assert.ok((await page.locator('#importScript').inputValue()).includes('교사의 기존 해석'));
-    assert.deepEqual(aiTranslationCalls.at(-1).numbers, [2]);
+    assert.equal(aiTranslationCalls.at(-1).number, 2);
     const callCount = aiTranslationCalls.length;
     await page.locator('#importAiRetranslate').click(); // Default dialog dismissal preserves edits.
     assert.equal(aiTranslationCalls.length, callCount);
@@ -140,9 +138,12 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
     await page.locator('#ollamaApiKey').fill('isolated-ui-test-key');
     await page.locator('#ollamaConnectBtn').click();
     await page.locator('#ollamaStatus').filter({ hasText: '연결 확인 완료' }).waitFor();
-    assert.equal(await page.evaluate(() => JSON.stringify(localStorage).includes('isolated-ui-test-key')), false);
+    assert.equal(await page.evaluate(() => JSON.stringify(localStorage).includes('isolated-ui-test-key')), false, 'Key is kept only after Save');
+    await page.locator('#ollamaSaveBtn').click();
+    assert.equal(await page.evaluate(() => JSON.stringify(localStorage).includes('isolated-ui-test-key')), true);
     await page.locator('#ollamaForgetBtn').click();
     assert.equal(await page.locator('#ollamaApiKey').inputValue(), '');
+    assert.equal(await page.evaluate(() => JSON.stringify(localStorage).includes('isolated-ui-test-key')), false);
     await page.locator('#importAnalyzeTiming').click();
     await page.locator('#importTimingResult [data-seek-time]').first().waitFor({ timeout: 60000 });
     assert.equal(await page.locator('#importTimingResult [data-seek-time]').count(), 20);
@@ -226,6 +227,6 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
     await page.locator('#listenMessage').filter({ hasText: '횟수에 들어가지 않았습니다' }).waitFor();
     assert.equal(await page.evaluate(() => Object.keys(window.__testFirebase.activityLogs).length), 0);
     assert.deepEqual(errors, []);
-    console.log(`Browser import passed: real 20-question PDF, ${duration.toFixed(1)}s MP3, mocked speech with real timing alignment, transient API key, no writes before confirmation, upload/write retries without duplicates, saved/manual timings, partial failures, mobile layout and student MP3 playback.`);
+    console.log(`Browser import passed: real 20-question PDF, ${duration.toFixed(1)}s MP3, mocked speech with real timing alignment, saved/forgotten API key, no writes before confirmation, upload/write retries without duplicates, saved/manual timings, partial failures, mobile layout and student MP3 playback.`);
   } finally { await browser.close(); await Promise.all([new Promise(resolve => server.close(resolve)), new Promise(resolve => audioServer.close(resolve))]); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

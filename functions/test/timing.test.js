@@ -2,21 +2,27 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { highSchoolRecord, validateSelection } from '../sources.js';
 import { parseHighSchoolScript } from '../pdf-script.js';
-import { validateOllama, checkOllama, recognizeChunk, validateSpeech, timingCandidates, selectTimings, analyzeTimings, scanTimings } from '../timing-service.js';
-import { parseTimingText, timingsMarkdown, validateTimings, pcmBase64 } from '../../audio-timing.js';
+import { validateOllama, checkOllama, ollamaChat } from '../ollama.js';
+import { alignQuestions, cueNumber, findCue, findInstruction, cueWindows, questionStart, buildTimings, chunkPlan, energyProfile, speechOnsets } from '../../timing-match.js';
+import { parseTimingText, timingsMarkdown, validateTimings } from '../../audio-timing.js';
 
 const questions = [
-  { number: 1, rows: [{ english: 'M: Good morning students this is your principal speaking today.' }] },
-  { number: 2, rows: [{ english: 'W: Hello David would you like to join our new music club?' }] },
+  { number: 1, rows: [{ english: 'M: Good morning students, this is your principal speaking today.' }, { english: 'W: Thank you.' }] },
+  { number: 2, rows: [{ english: 'W: Hello David, would you like to join our new music club?' }, { english: 'M: Sure, I love music.' }] },
+  { number: 3, rows: [{ english: 'M: Excuse me, where is the nearest subway station from here?' }] },
 ];
-function wordFixture() {
-  const words = [{ text: '1번', start: 56, end: 57 }];
-  for (const [index, question] of questions.entries()) {
-    if (index) words.push({ text: '2번', start: 101, end: 102 });
-    for (const [i, text] of question.rows[0].english.replace(/^[MW]: /, '').replace(/[.?]/g, '').split(' ').entries()) words.push({ text, start: 65 + index * 45 + i * 0.5, end: 65.4 + index * 45 + i * 0.5 });
-  }
-  return { questions, words, duration: 160 };
-}
+// Whisper-style segments: intro, "1." cue, dialogue, jingle, Korean-ish lines, …
+const segments = () => [
+  { start: 0, end: 20, text: '[music]' },
+  { start: 50, end: 51, text: '1.' },
+  { start: 56, end: 60, text: 'Good morning students, this is your principal speaking today.' },
+  { start: 60, end: 61, text: 'Thank you.' },
+  { start: 70, end: 80, text: '[music]' },
+  { start: 92, end: 96, text: 'Hello, David. Would you like to join our new music club?' },
+  { start: 96, end: 98, text: 'Sure, I love music.' },
+  { start: 120, end: 121, text: '3rd.' },
+  { start: 130, end: 135, text: 'Excuse me, where is the nearest subway station from here?' },
+];
 
 test('high school selects precise year/month/grade English downloads', () => {
   const selection = validateSelection({ year: 2025, grade: '고1', month: 3 });
@@ -36,78 +42,94 @@ test('high school common 16/17 passage survives numbered answer headings', () =>
   assert.throws(() => parseHighSchoolScript('1. 다음을 듣고 고르시오.\nM: Incomplete.'), /1~17/);
 });
 
-test('Ollama uses fixed cloud endpoint, transient bearer key and real model id', async () => {
+test('Ollama uses fixed cloud endpoint, transient bearer key, real model id and a JSON schema', async () => {
   const result = await checkOllama({ apiKey: 'test-key', model: 'deepseek-v4.1-flash:cloud' }, async (url, options) => {
     assert.equal(url, 'https://ollama.com/api/chat'); assert.equal(options.headers.Authorization, 'Bearer test-key');
     const body = JSON.parse(options.body); assert.equal(body.model, 'deepseek-v4.1-flash'); assert.equal(body.stream, false);
-    return { ok: true, json: async () => ({ message: { content: '{"connected":true}' } }) };
+    assert.equal(body.format.type, 'object');
+    return { ok: true, status: 200, json: async () => ({ message: { content: '{"connected":true}' } }) };
   });
   assert.equal(result.connected, true); assert.ok(!JSON.stringify(result).includes('test-key'));
   assert.throws(() => validateOllama({ apiKey: 'key\nHeader', model: 'm' }));
   await assert.rejects(checkOllama({ apiKey: 'secret' }, async () => ({ ok: false, status: 403 })), /인증/);
 });
 
-test('speech proxy accepts bounded PCM and keeps word offsets in actual audio range', async () => {
-  const content = Buffer.alloc(32000).toString('base64'); assert.equal(validateSpeech({ content }).duration, 1);
-  assert.throws(() => validateSpeech({ content: Buffer.alloc(46 * 32000).toString('base64') }));
-  const result = await recognizeChunk({ content }, async request => {
-    assert.equal(request.config.enableWordTimeOffsets, true);
-    return { results: [{ alternatives: [{ words: [{ word: 'Hello', startTime: '0.2s', endTime: '0.7s' }, { word: 'Bad', startTime: '-1s', endTime: '10s' }] }] }] };
-  });
-  assert.deepEqual(result.words, [{ text: 'Hello', start: 0.2, end: 0.7 }]);
+test('Ollama retries busy and malformed replies once, and accepts fenced JSON', async () => {
+  let calls = 0;
+  const replies = [{ ok: false, status: 429 }, { ok: true, status: 200, json: async () => ({ message: { content: '```json\n{"ok":1}\n```' } }) }];
+  const { result } = await ollamaChat({ apiKey: 'k' }, [], {}, async () => replies[calls++]);
+  assert.deepEqual(result, { ok: 1 }); assert.equal(calls, 2);
+  calls = 0;
+  await assert.rejects(ollamaChat({ apiKey: 'k' }, [], {}, async () => { calls++; return { ok: true, status: 200, json: async () => ({ message: { content: '{"a":1}]},{' } }) }; }), /JSON/);
+  assert.equal(calls, 2);
 });
 
-test('actual transcript matching locates instructions and English starts', async () => {
-  const input = wordFixture();
-  const result = await analyzeTimings(input);
-  assert.deepEqual(result.timings.map(t => t.start), [56, 101]);
-  const english = await analyzeTimings({ ...input, includeInstructions: false });
-  assert.deepEqual(english.timings.map(t => t.start), [65, 110]);
-  const candidates = timingCandidates(input);
-  assert.throws(() => selectTimings(candidates, [{ number: 1, candidateId: 'invented' }, { number: 2, candidateId: candidates[1].choices[0].id }], 160), /실제 음원/);
-  await assert.rejects(analyzeTimings({ ...input, words: [] }), /시간 정보/);
-  await assert.rejects(analyzeTimings({ ...input, duration: 3000 }), /40분/);
+test('cue parser reads Whisper renderings of "N번" but not dialogue numbers', () => {
+  for (const [text, number] of [['5.', 5], ['14th.', 14], ['17.', 17], ['7번.', 7], ['칠 번', 7], ['십오 번', 15], ['Number five.', 5], ['3. Next,', 3], ['12번 대화를 듣고', 12], ['19번과 20번]', 19]]) assert.equal(cueNumber(text), number, text);
+  for (const text of ['6 p.m. sounds good.', '10 dollars, please.', 'Hello.', 'One day, baking class']) assert.equal(cueNumber(text), null, text);
 });
 
-test('AI selects only observed candidates and never arbitrary guessed times', async () => {
-  const input = wordFixture();
-  const result = await analyzeTimings({ ...input, apiKey: 'test-key' }, async (_url, options) => {
-    const prompt = JSON.parse(JSON.parse(options.body).messages[1].content);
-    const selected = prompt.candidates.map(c => ({ number: c.number, candidateId: c.choices[0].id }));
-    return { ok: true, json: async () => ({ message: { content: JSON.stringify({ selected }) } }) };
-  });
-  assert.deepEqual(result.timings.map(t => t.start), [56, 101]); assert.match(result.model, /deepseek/);
+test('alignment finds each dialogue in order and is not derailed by a missing one', () => {
+  const alignment = alignQuestions(questions, segments());
+  assert.deepEqual(alignment.map(item => item.englishStart), [56, 92, 130]);
+  // Whisper dropped question 2 entirely: 1 and 3 still align, 2 is left empty.
+  const partial = alignQuestions(questions, segments().filter(segment => segment.start < 90 || segment.start > 100));
+  assert.deepEqual(partial.map(item => item.englishStart), [56, null, 130]);
+  // A short trailing line ("Thank you.") never becomes the next question's start.
+  assert.notEqual(alignment[1].englishStart, 60);
 });
 
-test('a repeated passage uses the first sufficiently matched play', async () => {
-  const input = wordFixture();
-  const earlier = input.words.filter(w => w.start >= 65 && w.start < 100).map(w => ({ ...w, text: w.text === 'students' ? 'pupils' : w.text }));
-  const repeated = input.words.filter(w => w.start >= 65 && w.start < 100).map(w => ({ ...w, start: w.start + 20, end: w.end + 20 }));
-  input.words = [...input.words.filter(w => w.start < 65 || w.start >= 100), ...earlier, ...repeated].sort((a,b) => a.start - b.start);
-  const result = await analyzeTimings({ ...input, includeInstructions: false });
-  assert.equal(result.timings[0].start, 65);
+test('a repeated passage starts at its first play and shared questions copy it', () => {
+  const shared = [...questions, { number: 4, rows: structuredClone(questions[2].rows) }];
+  const list = [...segments(), { start: 200, end: 205, text: 'Excuse me, where is the nearest subway station from here?' }];
+  const alignment = alignQuestions(shared, list);
+  assert.equal(alignment[2].englishStart, 130);
+  assert.equal(alignment[3].sharedWith, 3); assert.equal(alignment[3].englishStart, 130);
 });
 
-test('missing speech yields bounded recognition retries without invented times', () => {
-  const input = wordFixture(); input.words = input.words.filter(w => w.start < 100);
-  const scan = scanTimings(input);
-  assert.deepEqual(scan.missing, [2]);
-  assert.ok(scan.windows.length > 0 && scan.windows.every(w => w.start >= 0 && w.end <= input.duration && w.end-w.start <= 30));
-  assert.equal('timings' in scan, false);
+test('cue search prefers a group header and never uses the opening announcement', () => {
+  const korean = [{ start: 10, end: 14, text: '1번부터 17번까지는 한 번만 들려줍니다' }, { start: 50, end: 51, text: '1번' }, { start: 52, end: 56, text: '다음을 듣고 고르시오' }];
+  assert.equal(findCue(korean, 1, 0, 60), 50);
+  const group = [{ start: 100, end: 103, text: '19번과 20번] 대화를 듣고' }, { start: 108, end: 109, text: '19번' }];
+  assert.equal(findCue(group, 19, 95, 115), 100);
+  assert.equal(findInstruction([{ start: 10, end: 14, text: '잘 듣고 답하시기 바랍니다' }, { start: 49, end: 50, text: '칠 번' }, { start: 50.5, end: 55, text: '대화를 듣고 고르시오' }], 0, 60), 49);
 });
 
-test('common passage shares audio, manual table round-trips and does not allow unrelated equal starts', async () => {
-  const input = wordFixture(); input.questions.push({ number: 3, rows: structuredClone(input.questions[1].rows) });
-  const result = await analyzeTimings(input);
-  assert.deepEqual(result.timings.map(t => t.start), [56, 101, 101]);
-  const table = timingsMarkdown(result.timings), parsed = parseTimingText(table);
-  assert.deepEqual(parsed, [{ number: 1, start: 56 }, { number: 2, start: 101 }, { number: 3, start: 101 }]);
-  assert.doesNotThrow(() => validateTimings(parsed, input.questions));
-  assert.throws(() => validateTimings([{ number: 1, start: 56 }, { number: 2, start: 56 }], input.questions));
+test('Korean windows start after the longest pause or jingle, not in silence', () => {
+  const alignment = alignQuestions(questions, segments());
+  const onsets = [{ time: 50, gap: 9 }, { time: 62, gap: 0.4 }, { time: 84, gap: 1.6 }, { time: 86, gap: 0.5 }];
+  const [first] = cueWindows(alignment, 1, segments(), onsets, 200);
+  assert.ok(Math.abs(first.start - 83.7) < 0.01 && first.end === 93, JSON.stringify(first));
+  assert.equal(questionStart(51.5, onsets), 50);
+  assert.equal(questionStart(86.2, onsets), 84);
 });
 
-test('PCM encoder averages channels and handles signed little-endian samples', () => {
-  const buffer = { length: 2, numberOfChannels: 2, getChannelData: i => i ? Float32Array.from([1, -1]) : Float32Array.from([1, 1]) };
-  const result = Buffer.from(pcmBase64(buffer, 0, 2 / 16000), 'base64');
-  assert.equal(result.readInt16LE(0), 32767); assert.equal(result.readInt16LE(2), 0);
+test('timings use heard cues, fall back to the dialogue and leave unknown questions empty', () => {
+  const shared = [...questions, { number: 4, rows: structuredClone(questions[2].rows) }];
+  const alignment = alignQuestions(shared, segments());
+  const result = buildTimings(shared, alignment, [{ time: 50 }, null, { time: 120 }, null]);
+  assert.deepEqual(result.timings.map(t => [t.number, t.start]), [[1, 49.7], [2, 91.7], [3, 119.7], [4, 119.7]]);
+  assert.ok(result.warnings.some(text => /2번.*안내를 찾지 못해/.test(text)));
+  const english = buildTimings(shared, alignment, [{ time: 50 }, null, { time: 120 }, null], false);
+  assert.deepEqual(english.timings.map(t => t.start), [55.7, 91.7, 129.7, 129.7]);
+  const missing = buildTimings(questions, alignQuestions(questions, segments().slice(0, 4)), [{ time: 50 }, null, null]);
+  assert.deepEqual(missing.missing, [2, 3]);
+});
+
+test('chunks are cut at the quietest point and onsets carry pause length', () => {
+  const samples = new Float32Array(16000 * 70).map((_, i) => (Math.floor(i / 16000) % 8 === 7 ? 0 : Math.sin(i / 5) * 0.3));
+  const profile = energyProfile(samples), chunks = chunkPlan(profile);
+  assert.equal(chunks[0].start, 0); assert.ok(chunks.every(chunk => chunk.end - chunk.start <= 29.5));
+  assert.equal(chunks.at(-1).end, 70);
+  for (const chunk of chunks.slice(0, -1)) assert.ok(chunk.end % 8 > 7 && chunk.end % 8 < 8, String(chunk.end));
+  assert.ok(speechOnsets(profile).some(onset => Math.abs(onset.time - 8) < 0.1 && onset.gap > 0.9));
+});
+
+test('manual table round-trips and does not allow unrelated equal starts', () => {
+  const shared = [...questions, { number: 4, rows: structuredClone(questions[2].rows) }];
+  const timings = [{ number: 1, start: 56 }, { number: 2, start: 101 }, { number: 3, start: 130 }, { number: 4, start: 130 }];
+  const parsed = parseTimingText(timingsMarkdown(timings));
+  assert.deepEqual(parsed, timings);
+  assert.doesNotThrow(() => validateTimings(parsed, shared));
+  assert.throws(() => validateTimings([{ number: 1, start: 56 }, { number: 2, start: 56 }], shared));
 });
